@@ -24,6 +24,12 @@ func main() {
 			return tui.JobsLoadedMsg{Jobs: jobs, Err: err}
 		}
 	}
+	m.FetchPipeline = func(projectID, pipelineID int) tea.Cmd {
+		return func() tea.Msg {
+			p, err := client.FetchPipeline(ctx, projectID, pipelineID)
+			return tui.PipelineUpdatedMsg{Pipeline: p, Err: err}
+		}
+	}
 	m.Refresh = func() tea.Cmd {
 		return func() tea.Msg {
 			rows, err := loadPipelines(ctx, client)
