@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/navitronic/gitlab-builds/internal/discovery"
@@ -105,5 +106,8 @@ func loadPipelines(ctx context.Context, client *glab.Client) ([]tui.PipelineRow,
 	if len(rows) == 0 && lastErr != nil {
 		return nil, fmt.Errorf("fetching pipelines: %w", lastErr)
 	}
+	sort.Slice(rows, func(i, j int) bool {
+		return rows[i].Pipeline.UpdatedAt.After(rows[j].Pipeline.UpdatedAt)
+	})
 	return rows, nil
 }
