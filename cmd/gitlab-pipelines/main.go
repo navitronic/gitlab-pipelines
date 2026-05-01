@@ -22,6 +22,12 @@ func main() {
 			return tui.JobsLoadedMsg{Jobs: jobs, Err: err}
 		}
 	}
+	m.Refresh = func() tea.Cmd {
+		return func() tea.Msg {
+			rows, err := loadPipelines(ctx, client)
+			return tui.PipelinesLoadedMsg{Pipelines: rows, Err: err}
+		}
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	go func() {
