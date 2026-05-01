@@ -43,11 +43,11 @@ func (d *DetailModel) Tick() {
 	d.frame = (d.frame + 1) % len(spinnerFrames)
 }
 
-func (d *DetailModel) View() string {
+func (d *DetailModel) Render(width, height int) string {
 	p := d.row.Pipeline
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(fmt.Sprintf("Pipeline #%d", p.ID)))
+	b.WriteString(detailTitleStyle.Render(fmt.Sprintf("Pipeline #%d", p.ID)))
 	b.WriteString("\n\n")
 	b.WriteString(fmt.Sprintf("  Project:  %s\n", d.row.ProjectPath))
 	b.WriteString(fmt.Sprintf("  Status:   %s\n", statusIcon(p.Status)))
@@ -73,8 +73,6 @@ func (d *DetailModel) View() string {
 		b.WriteString(d.renderJobs())
 	}
 
-	b.WriteString("\n")
-	b.WriteString(detailHelpStyle.Render("esc/backspace: back • q: quit"))
 	return b.String()
 }
 
@@ -166,7 +164,7 @@ func formatDuration(seconds float64) string {
 }
 
 var (
-	detailHelpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).MarginLeft(2).MarginTop(1)
+	detailTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2).MarginTop(1)
 	jobHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2)
 	stageStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("69"))
 	runningBoldStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
