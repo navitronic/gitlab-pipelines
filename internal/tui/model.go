@@ -133,17 +133,17 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		if msg.Err != nil {
 			m.err = formatError(msg.Err)
-			return m, scheduleRefresh()
+			return m, nil
 		}
 		m.err = nil
 		m.pipelines = msg.Pipelines
 		m.table.SetRows(buildRows(msg.Pipelines, m.width))
-		return m, scheduleRefresh()
+		return m, nil
 
 	case refreshTickMsg:
 		if !m.loading && m.Refresh != nil && m.currentView == viewList {
 			m.loading = true
-			return m, tea.Batch(m.spinner.Tick, m.Refresh())
+			return m, tea.Batch(m.spinner.Tick, m.Refresh(), scheduleRefresh())
 		}
 		return m, scheduleRefresh()
 
