@@ -2,45 +2,21 @@
 
 ## Overview
 
-Build a terminal UI (TUI) application in Go that displays GitLab pipelines relevant to the current user’s activity.
-
-All communication with GitLab must be performed via the `glab` CLI installed on the host. No direct HTTP requests to GitLab APIs are permitted.
-
----
-
-## Core Requirements
-
-### Functional
-
-- Retrieve current user via `glab`
-- Fetch recent user activity
-- Infer relevant pipelines from that activity
-- Display pipelines in a table
-- Allow selection of a pipeline to view job-level details
-
-### Non-Functional
-
-- Must use Charm TUI ecosystem
-- Must shell out to `glab` for all GitLab data
-- Must gracefully handle missing or unauthenticated `glab`
-- Must support pagination via repeated `glab api` calls
+A Go-based terminal UI (TUI) application that displays GitLab pipelines relevant to the current user's activity. All communication with GitLab is performed via the `glab` CLI installed on the host — no direct HTTP requests to GitLab APIs.
 
 ---
 
 ## Tech Stack
 
 - Go (1.22+)
-- Charm libraries:
-  - bubbletea
-  - bubbles
-  - lipgloss
-- External dependency:
-  - glab CLI (required at runtime)
+- Charm libraries: bubbletea, bubbles, lipgloss
+- External dependency: glab CLI (required at runtime)
 
 ---
 
 ## Architecture
 
+```
 TUI (Bubble Tea)
   ↓
 Application State
@@ -49,26 +25,97 @@ Discovery Layer
   ↓
 Glab Client (shells out)
   ↓
-glab api
-  ↓
-GitLab
+glab api → GitLab
+```
 
 ---
 
-## glab Integration (MANDATORY)
+## Project Structure
 
-All GitLab access must use:
+```
+cmd/gitlab-pipelines/main.go
 
-    glab api <endpoint>
+internal/glab/       # glab CLI wrapper
+internal/discovery/  # Pipeline candidate discovery
+internal/gitlab/     # GitLab data models
+internal/tui/        # Bubble Tea UI components
+internal/config/     # Configuration
+```
 
-### Example Commands
+---
 
-    glab api user
-    glab api "users/:id/events?per_page=100"
-    glab api "projects/:id/pipelines?per_page=100"
-    glab api "projects/:id/pipelines/:pipeline_id/jobs"
+## Implementation Checklist
 
-### Go Execution Pattern
+### Phase 1: Foundation
+
+- [ ] Project scaffolding (go.mod, directory structure, main.go)
+- [ ] glab client wrapper (`internal/glab/`)
+  - [ ] `runGlab(ctx, args...)` exec helper
+  - [ ] JSON response parsing
+  - [ ] Error handling (missing binary, auth failure)
+- [ ] Fetch current user via `glab api user`
+
+### Phase 2: Discovery
+
+- [ ] Fetch user events via `glab api "users/:id/events?per_page=100"`
+- [ ] Extract pipeline candidates (project ID, ref, SHA, event type, timestamp)
+- [ ] Deduplicate candidates by `project_id + ref + sha`
+- [ ] Pagination support for events endpoint
+
+### Phase 3: Pipeline Retrieval
+
+- [ ] Fetch pipelines by SHA: `glab api "projects/:id/pipelines?sha=$SHA&user_id=$USER_ID"`
+- [ ] Fetch pipelines by ref: `glab api "projects/:id/pipelines?ref=$REF&user_id=$USER_ID"`
+- [ ] Fallback fetch: `glab api "projects/:id/pipelines?user_id=$USER_ID&order_by=updated_at&sort=desc"`
+- [ ] Fetch pipeline jobs: `glab api "projects/:id/pipelines/:pipeline_id/jobs"`
+- [ ] Pagination support for pipeline endpoints
+
+### Phase 4: TUI — Pipeline List
+
+- [ ] Bubble Tea model setup
+- [ ] Pipeline list table view
+  - [ ] Columns: Status | Project | Ref | Commit | Pipeline | Jobs | Updated | Source
+- [ ] Keyboard navigation (up/down, enter to select)
+- [ ] Status indicators with lipgloss styling
+- [ ] Loading state while fetching data
+
+### Phase 5: TUI — Pipeline Details
+
+- [ ] Pipeline detail view (metadata + job list)
+- [ ] Job status display
+- [ ] Navigation back to pipeline list
+- [ ] Keyboard shortcut help
+
+### Phase 6: Polish
+
+- [ ] Graceful handling of missing/unauthenticated glab
+- [ ] Error display in TUI (not panic)
+- [ ] Auto-refresh / manual refresh
+- [ ] Responsive layout for different terminal sizes
+
+---
+
+## Data Flow
+
+1. Fetch current user → `glab api user`
+2. Fetch user events → `glab api "users/$USER_ID/events?per_page=100"`
+3. Build pipeline candidates (extract + deduplicate)
+4. Fetch pipelines per candidate (SHA → ref → fallback)
+5. Render pipeline list in TUI
+6. On selection: fetch jobs → render detail view
+
+---
+
+## Constraints
+
+- MUST use `glab` for all GitLab interaction
+- MUST NOT use `net/http` to call GitLab directly
+- MUST NOT require GitLab tokens directly (assume `glab auth login` done)
+- MUST support pagination via repeated `glab api` calls
+
+---
+
+## glab Execution Pattern
 
 ```go
 func runGlab(ctx context.Context, args ...string) ([]byte, error) {
@@ -77,47 +124,9 @@ func runGlab(ctx context.Context, args ...string) ([]byte, error) {
 }
 ```
 
-### Constraints
-
-- Do NOT use net/http to call GitLab
-- Do NOT require GitLab tokens directly
-- Assume `glab auth login` has already been completed
-
 ---
 
-## Data Flow
-
-1. Fetch current user
-2. Fetch user events
-3. Extract pipeline candidates
-4. Fetch pipelines per candidate
-5. Fetch jobs for selected pipeline
-6. Render UI
-
----
-
-## Step 1: Fetch Current User
-
-    glab api user
-
----
-
-## Step 2: Fetch User Activity
-
-    glab api "users/$USER_ID/events?per_page=100"
-
-Extract:
-- project ID/path
-- branch (ref)
-- commit SHA
-- event type
-- timestamp
-
----
-
-## Step 3: Build Pipeline Candidates
-
-### Candidate Model
+## Key Models
 
 ```go
 type PipelineCandidate struct {
@@ -129,88 +138,3 @@ type PipelineCandidate struct {
     EventTime   time.Time
 }
 ```
-
-### Deduplication
-
-project_id + ref + sha
-
----
-
-## Step 4: Fetch Pipelines
-
-### By SHA
-
-    glab api "projects/:id/pipelines?sha=$SHA&user_id=$USER_ID"
-
-### By ref
-
-    glab api "projects/:id/pipelines?ref=$REF&user_id=$USER_ID"
-
-### Fallback
-
-    glab api "projects/:id/pipelines?user_id=$USER_ID&order_by=updated_at&sort=desc"
-
----
-
-## Step 5: Fetch Pipeline Jobs
-
-    glab api "projects/:id/pipelines/:pipeline_id/jobs"
-
----
-
-## TUI Design
-
-### Pipeline List
-
-Columns:
-Status | Project | Ref | Commit | Pipeline | Jobs | Updated | Source
-
-### Pipeline Details
-
-Displays pipeline metadata and job list.
-
----
-
-## Project Structure
-
-cmd/gitlab-pipelines/main.go
-
-internal/glab/
-internal/discovery/
-internal/gitlab/
-internal/tui/
-internal/config/
-
----
-
-## Milestones
-
-1. CLI Prototype
-2. Basic TUI
-3. Pipeline Details
-4. Improved Discovery
-5. Packaging
-
----
-
-## Constraints
-
-- MUST use glab for all GitLab interaction
-- MUST NOT use direct HTTP calls
-- MUST support pagination manually
-
----
-
-## MVP Scope
-
-- user retrieval
-- recent events
-- pipeline discovery
-- pipeline list UI
-- pipeline details UI
-
----
-
-## Summary
-
-A Go-based TUI that uses glab exclusively to surface relevant GitLab pipelines and jobs based on user activity.
