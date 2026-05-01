@@ -220,6 +220,7 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, scheduleRefresh()
 	case detailTickMsg:
 		if m.detail != nil && m.detail.hasActiveJobs() {
+			m.detail.Tick()
 			return m, scheduleDetailTick()
 		}
 	}

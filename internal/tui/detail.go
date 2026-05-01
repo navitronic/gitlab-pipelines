@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,12 +16,15 @@ type JobsLoadedMsg struct {
 	Err  error
 }
 
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 // DetailModel renders the detail view for a selected pipeline.
 type DetailModel struct {
 	row         PipelineRow
 	jobs        []gitlab.Job
 	jobsLoading bool
 	jobsErr     error
+	frame       int
 }
 
 // NewDetailModel creates a detail model for the given pipeline row.
@@ -30,8 +34,13 @@ func NewDetailModel(row PipelineRow) *DetailModel {
 
 func (d *DetailModel) SetJobs(jobs []gitlab.Job, err error) {
 	d.jobsLoading = false
+	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ID < jobs[j].ID })
 	d.jobs = jobs
 	d.jobsErr = err
+}
+
+func (d *DetailModel) Tick() {
+	d.frame = (d.frame + 1) % len(spinnerFrames)
 }
 
 func (d *DetailModel) View() string {
@@ -113,7 +122,13 @@ func (d *DetailModel) renderJobs() string {
 	for _, stage := range stageOrder {
 		b.WriteString(fmt.Sprintf("  %s\n", stageStyle.Render(stage)))
 		for _, job := range stageJobs[stage] {
-			b.WriteString(fmt.Sprintf("    %s %s%s\n", jobStatusIcon(job.Status), job.Name, jobDuration(job)))
+			icon := jobStatusIcon(job.Status)
+			name := job.Name + jobDuration(job)
+			if job.Status == "running" {
+				icon = runningStyle.Render(spinnerFrames[d.frame%len(spinnerFrames)])
+				name = runningBoldStyle.Render(name)
+			}
+			b.WriteString(fmt.Sprintf("    %s %s\n", icon, name))
 		}
 	}
 	return b.String()
@@ -150,7 +165,8 @@ func formatDuration(seconds float64) string {
 }
 
 var (
-	detailHelpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).MarginLeft(2).MarginTop(1)
-	jobHeaderStyle  = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2)
-	stageStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("69"))
+	detailHelpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).MarginLeft(2).MarginTop(1)
+	jobHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2)
+	stageStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("69"))
+	runningBoldStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33"))
 )
