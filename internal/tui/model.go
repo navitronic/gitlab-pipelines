@@ -29,6 +29,7 @@ type PipelinesLoadedMsg struct {
 }
 
 type refreshTickMsg struct{}
+type detailTickMsg struct{}
 
 // PipelineRow holds display data for one pipeline in the list.
 type PipelineRow struct {
@@ -83,6 +84,12 @@ func scheduleRefresh() tea.Cmd {
 	})
 }
 
+func scheduleDetailTick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return detailTickMsg{}
+	})
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.currentView {
 	case viewDetail:
@@ -110,11 +117,13 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if idx >= 0 && idx < len(m.pipelines) {
 					m.currentView = viewDetail
 					m.detail = NewDetailModel(m.pipelines[idx])
+					var cmds []tea.Cmd
+					cmds = append(cmds, scheduleDetailTick())
 					if m.FetchJobs != nil {
 						row := m.pipelines[idx]
-						return m, m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID)
+						cmds = append(cmds, m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID))
 					}
-					return m, nil
+					return m, tea.Batch(cmds...)
 				}
 			}
 		}
@@ -192,6 +201,10 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID), scheduleRefresh())
 		}
 		return m, scheduleRefresh()
+	case detailTickMsg:
+		if m.detail != nil && m.detail.hasActiveJobs() {
+			return m, scheduleDetailTick()
+		}
 	}
 	return m, nil
 }
