@@ -57,10 +57,10 @@ internal/config/     # Configuration
 
 ### Phase 2: Discovery
 
-- [ ] Fetch user events via `glab api "users/:id/events?per_page=100"`
-- [ ] Extract pipeline candidates (project ID, ref, SHA, event type, timestamp)
-- [ ] Deduplicate candidates by `project_id + ref + sha`
-- [ ] Pagination support for events endpoint
+- [x] Fetch user events via `glab api "users/:id/events?per_page=100"`
+- [x] Extract pipeline candidates (project ID, ref, SHA, event type, timestamp)
+- [x] Deduplicate candidates by `project_id + ref + sha`
+- [x] Pagination support for events endpoint
 
 ### Phase 3: Pipeline Retrieval
 
