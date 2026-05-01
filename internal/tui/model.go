@@ -33,15 +33,16 @@ type PipelineRow struct {
 
 // Model is the top-level Bubble Tea model.
 type Model struct {
-	table      table.Model
-	spinner    spinner.Model
-	pipelines  []PipelineRow
-	loading    bool
-	err        error
-	width      int
-	height     int
+	table       table.Model
+	spinner     spinner.Model
+	pipelines   []PipelineRow
+	loading     bool
+	err         error
+	width       int
+	height      int
 	currentView view
-	detail     *DetailModel
+	detail      *DetailModel
+	FetchJobs   func(projectID, pipelineID int) tea.Cmd
 }
 
 // New creates a new TUI model in loading state.
@@ -99,6 +100,10 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if idx >= 0 && idx < len(m.pipelines) {
 					m.currentView = viewDetail
 					m.detail = NewDetailModel(m.pipelines[idx])
+					if m.FetchJobs != nil {
+						row := m.pipelines[idx]
+						return m, m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID)
+					}
 					return m, nil
 				}
 			}
@@ -147,6 +152,10 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	case JobsLoadedMsg:
+		if m.detail != nil {
+			m.detail.SetJobs(msg.Jobs, msg.Err)
+		}
 	}
 	return m, nil
 }
