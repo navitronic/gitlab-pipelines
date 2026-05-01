@@ -37,6 +37,20 @@ func (c *Client) FetchPipelinesFallback(ctx context.Context, projectID int, user
 	return c.fetchPipelinesPaginated(ctx, endpoint)
 }
 
+// FetchPipeline fetches a single pipeline by ID.
+func (c *Client) FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error) {
+	endpoint := fmt.Sprintf("projects/%d/pipelines/%d", projectID, pipelineID)
+	out, err := c.Run(ctx, "api", endpoint)
+	if err != nil {
+		return gitlab.Pipeline{}, fmt.Errorf("fetching pipeline: %w", err)
+	}
+	var p gitlab.Pipeline
+	if err := json.Unmarshal(out, &p); err != nil {
+		return gitlab.Pipeline{}, fmt.Errorf("parsing pipeline response: %w", err)
+	}
+	return p, nil
+}
+
 // FetchPipelineJobs fetches jobs for a specific pipeline.
 func (c *Client) FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error) {
 	const perPage = 100

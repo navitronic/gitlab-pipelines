@@ -28,6 +28,12 @@ type PipelinesLoadedMsg struct {
 	Err       error
 }
 
+// PipelineUpdatedMsg signals that a single pipeline has been re-fetched.
+type PipelineUpdatedMsg struct {
+	Pipeline gitlab.Pipeline
+	Err      error
+}
+
 type refreshTickMsg struct{}
 type detailTickMsg struct{}
 
@@ -50,8 +56,9 @@ type Model struct {
 	height      int
 	currentView view
 	detail      *DetailModel
-	FetchJobs   func(projectID, pipelineID int) tea.Cmd
-	Refresh     func() tea.Cmd
+	FetchJobs     func(projectID, pipelineID int) tea.Cmd
+	FetchPipeline func(projectID, pipelineID int) tea.Cmd
+	Refresh       func() tea.Cmd
 }
 
 // New creates a new TUI model in loading state.
@@ -197,10 +204,18 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.detail != nil {
 			m.detail.SetJobs(msg.Jobs, msg.Err)
 		}
+	case PipelineUpdatedMsg:
+		if m.detail != nil && msg.Err == nil {
+			m.detail.row.Pipeline = msg.Pipeline
+		}
 	case refreshTickMsg:
 		if m.detail != nil && m.FetchJobs != nil {
 			row := m.detail.row
-			return m, tea.Batch(m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID), scheduleRefresh())
+			cmds := []tea.Cmd{m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID), scheduleRefresh()}
+			if m.FetchPipeline != nil {
+				cmds = append(cmds, m.FetchPipeline(row.Pipeline.ProjectID, row.Pipeline.ID))
+			}
+			return m, tea.Batch(cmds...)
 		}
 		return m, scheduleRefresh()
 	case detailTickMsg:
