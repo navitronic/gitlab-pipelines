@@ -178,6 +178,8 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.detail != nil {
 			m.detail.SetJobs(msg.Jobs, msg.Err)
 		}
+	case refreshTickMsg:
+		return m, scheduleRefresh()
 	}
 	return m, nil
 }
