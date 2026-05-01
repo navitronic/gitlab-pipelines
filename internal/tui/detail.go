@@ -52,7 +52,7 @@ func (d *DetailModel) View() string {
 	b.WriteString("\n")
 
 	b.WriteString(jobHeaderStyle.Render("Jobs"))
-	b.WriteString("\n")
+	b.WriteString("\n\n")
 
 	if d.jobsErr != nil {
 		b.WriteString(fmt.Sprintf("  Error loading jobs: %v\n", d.jobsErr))
