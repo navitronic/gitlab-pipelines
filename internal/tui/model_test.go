@@ -110,55 +110,65 @@ func TestFormatError(t *testing.T) {
 	}
 }
 
-func TestDefaultColumns(t *testing.T) {
+func TestVisibleItems(t *testing.T) {
 	tests := []struct {
-		width    int
-		wantCols int
+		height int
+		want   int
 	}{
-		{60, 5},
-		{79, 5},
-		{80, 7},
-		{119, 7},
-		{120, 8},
-		{200, 8},
+		{3, 1},
+		{5, 1},
+		{7, 1},
+		{8, 2},
+		{24, 10},
+		{40, 18},
 	}
 	for _, tt := range tests {
-		cols := defaultColumns(tt.width)
-		if len(cols) != tt.wantCols {
-			t.Errorf("defaultColumns(%d) = %d columns, want %d", tt.width, len(cols), tt.wantCols)
+		m := Model{height: tt.height}
+		if got := m.visibleItems(); got != tt.want {
+			t.Errorf("visibleItems(height=%d) = %d, want %d", tt.height, got, tt.want)
 		}
 	}
 }
 
-func TestBuildRows_ColumnCount(t *testing.T) {
-	pipelines := []PipelineRow{
-		{
-			Pipeline: gitlab.Pipeline{
-				ID:     1,
-				SHA:    "abc123def456",
-				Ref:    "main",
-				Status: "success",
-				Source: "push",
-			},
-			ProjectPath: "group/project",
-		},
-	}
-
+func TestStatusIconCompact(t *testing.T) {
 	tests := []struct {
-		width    int
-		wantCols int
+		status string
 	}{
-		{60, 5},
-		{100, 7},
-		{150, 8},
+		{"success"},
+		{"failed"},
+		{"running"},
+		{"pending"},
+		{"canceled"},
+		{"skipped"},
+		{"unknown"},
 	}
 	for _, tt := range tests {
-		rows := buildRows(pipelines, tt.width)
-		if len(rows) != 1 {
-			t.Fatalf("buildRows(width=%d) returned %d rows, want 1", tt.width, len(rows))
+		got := statusIconCompact(tt.status)
+		if got == "" {
+			t.Errorf("statusIconCompact(%q) returned empty string", tt.status)
 		}
-		if len(rows[0]) != tt.wantCols {
-			t.Errorf("buildRows(width=%d) row has %d cells, want %d", tt.width, len(rows[0]), tt.wantCols)
-		}
+	}
+}
+
+func TestRenderPipelineItem(t *testing.T) {
+	row := PipelineRow{
+		Pipeline: gitlab.Pipeline{
+			ID:        1,
+			SHA:       "abc123def456",
+			Ref:       "main",
+			Status:    "success",
+			UpdatedAt: time.Now().Add(-5 * time.Minute),
+		},
+		ProjectPath: "group/project",
+	}
+
+	got := renderPipelineItem(row, 80, false)
+	if got == "" {
+		t.Fatal("renderPipelineItem returned empty string")
+	}
+
+	selected := renderPipelineItem(row, 80, true)
+	if selected == "" {
+		t.Fatal("renderPipelineItem (selected) returned empty string")
 	}
 }

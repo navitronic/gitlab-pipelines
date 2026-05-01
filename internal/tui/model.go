@@ -3,10 +3,10 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/navitronic/gitlab-builds/internal/gitlab"
@@ -40,9 +40,10 @@ type PipelineRow struct {
 
 // Model is the top-level Bubble Tea model.
 type Model struct {
-	table       table.Model
 	spinner     spinner.Model
 	pipelines   []PipelineRow
+	cursor      int
+	offset      int
 	loading     bool
 	err         error
 	width       int
@@ -59,18 +60,11 @@ func New() Model {
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
-	columns := defaultColumns(120)
-	t := table.New(
-		table.WithColumns(columns),
-		table.WithFocused(true),
-	)
-	t.SetStyles(tableStyles())
-
 	return Model{
-		table:   t,
 		spinner: s,
 		loading: true,
 		width:   120,
+		height:  24,
 	}
 }
 
@@ -99,6 +93,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+// visibleItems returns how many 2-line pipeline items fit in the viewport.
+func (m Model) visibleItems() int {
+	available := m.height - 4
+	if available < 2 {
+		return 1
+	}
+	return available / 2
+}
+
 func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -111,39 +114,38 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, tea.Batch(m.spinner.Tick, m.Refresh())
 			}
-		case "enter":
-			if len(m.pipelines) > 0 {
-				idx := m.table.Cursor()
-				if idx >= 0 && idx < len(m.pipelines) {
-					m.currentView = viewDetail
-					m.detail = NewDetailModel(m.pipelines[idx])
-					var cmds []tea.Cmd
-					cmds = append(cmds, scheduleDetailTick())
-					if m.FetchJobs != nil {
-						row := m.pipelines[idx]
-						cmds = append(cmds, m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID))
-					}
-					return m, tea.Batch(cmds...)
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+				if m.cursor < m.offset {
+					m.offset = m.cursor
 				}
+			}
+		case "down", "j":
+			if m.cursor < len(m.pipelines)-1 {
+				m.cursor++
+				visible := m.visibleItems()
+				if m.cursor >= m.offset+visible {
+					m.offset = m.cursor - visible + 1
+				}
+			}
+		case "enter":
+			if len(m.pipelines) > 0 && m.cursor >= 0 && m.cursor < len(m.pipelines) {
+				m.currentView = viewDetail
+				m.detail = NewDetailModel(m.pipelines[m.cursor])
+				var cmds []tea.Cmd
+				cmds = append(cmds, scheduleDetailTick())
+				if m.FetchJobs != nil {
+					row := m.pipelines[m.cursor]
+					cmds = append(cmds, m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID))
+				}
+				return m, tea.Batch(cmds...)
 			}
 		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		if msg.Width > 0 {
-			m.table.SetWidth(msg.Width)
-		}
-		h := msg.Height - 4
-		if h < 1 {
-			h = 1
-		}
-		m.table.SetHeight(h)
-		m.table.SetRows(nil)
-		m.table.SetColumns(defaultColumns(msg.Width))
-		if len(m.pipelines) > 0 {
-			m.table.SetRows(buildRows(m.pipelines, msg.Width))
-		}
 		return m, nil
 
 	case PipelinesLoadedMsg:
@@ -154,7 +156,9 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.pipelines = msg.Pipelines
-		m.table.SetRows(buildRows(msg.Pipelines, m.width))
+		if m.cursor >= len(m.pipelines) {
+			m.cursor = max(0, len(m.pipelines)-1)
+		}
 		return m, nil
 
 	case refreshTickMsg:
@@ -172,9 +176,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	var cmd tea.Cmd
-	m.table, cmd = m.table.Update(msg)
-	return m, cmd
+	return m, nil
 }
 
 func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -238,80 +240,79 @@ func (m Model) viewList() string {
 	if m.loading {
 		header += " " + m.spinner.View()
 	}
+
+	visible := m.visibleItems()
+	end := min(m.offset+visible, len(m.pipelines))
+
+	var rows []string
+	for i := m.offset; i < end; i++ {
+		selected := i == m.cursor
+		rows = append(rows, renderPipelineItem(m.pipelines[i], m.width, selected))
+	}
+
+	list := strings.Join(rows, "\n")
 	help := helpStyle.Render("↑/↓: navigate • enter: details • r: refresh • q: quit")
-	return header + "\n" + m.table.View() + "\n" + help
+	return header + "\n\n" + list + "\n" + help
 }
 
-func defaultColumns(width int) []table.Column {
-	if width < 80 {
-		return []table.Column{
-			{Title: "Status", Width: 10},
-			{Title: "Project", Width: 20},
-			{Title: "Ref", Width: 12},
-			{Title: "Pipeline", Width: 8},
-			{Title: "Jobs", Width: 8},
-		}
+func renderPipelineItem(p PipelineRow, width int, selected bool) string {
+	padding := 2
+	iconWidth := 4
+	timeWidth := 12
+	midWidth := max(width-iconWidth-timeWidth-padding*2, 20)
+
+	bg := lipgloss.NewStyle()
+	dim := dimStyle
+	if selected {
+		bg = selectedStyle
+		dim = selectedStyle
 	}
-	if width < 120 {
-		return []table.Column{
-			{Title: "Status", Width: 10},
-			{Title: "Project", Width: 25},
-			{Title: "Ref", Width: 16},
-			{Title: "Commit", Width: 10},
-			{Title: "Pipeline", Width: 10},
-			{Title: "Jobs", Width: 10},
-			{Title: "Updated", Width: 14},
-		}
+
+	icon := statusIconCompact(p.Pipeline.Status)
+	iconCol := bg.
+		Width(iconWidth).
+		Height(2).
+		Align(lipgloss.Center, lipgloss.Center).
+		Render(icon)
+
+	line1 := shortSHA(p.Pipeline.SHA) + " - " + truncate(p.Pipeline.Ref, midWidth-11)
+	line2 := dim.Render(truncate(p.ProjectPath, midWidth))
+	midCol := bg.
+		Width(midWidth).
+		Render(line1 + "\n" + line2)
+
+	timeStr := dim.Render(formatTime(p.Pipeline.UpdatedAt))
+	timeCol := bg.
+		Width(timeWidth).
+		Height(2).
+		Align(lipgloss.Right, lipgloss.Center).
+		Render(timeStr)
+
+	row := lipgloss.JoinHorizontal(lipgloss.Top, iconCol, midCol, timeCol)
+	rowStyle := lipgloss.NewStyle().PaddingLeft(padding).PaddingRight(padding)
+	if selected {
+		rowStyle = rowStyle.Background(selectedStyle.GetBackground()).Foreground(selectedStyle.GetForeground())
 	}
-	return []table.Column{
-		{Title: "Status", Width: 10},
-		{Title: "Project", Width: 28},
-		{Title: "Ref", Width: 18},
-		{Title: "Commit", Width: 10},
-		{Title: "Pipeline", Width: 10},
-		{Title: "Jobs", Width: 10},
-		{Title: "Updated", Width: 16},
-		{Title: "Source", Width: 12},
-	}
+	return rowStyle.Render(row)
 }
 
-func buildRows(pipelines []PipelineRow, width int) []table.Row {
-	rows := make([]table.Row, 0, len(pipelines))
-	for _, p := range pipelines {
-		var row table.Row
-		if width < 80 {
-			row = table.Row{
-				statusIcon(p.Pipeline.Status),
-				truncate(p.ProjectPath, 18),
-				truncate(p.Pipeline.Ref, 10),
-				fmt.Sprintf("#%d", p.Pipeline.ID),
-				p.JobSummary,
-			}
-		} else if width < 120 {
-			row = table.Row{
-				statusIcon(p.Pipeline.Status),
-				truncate(p.ProjectPath, 23),
-				truncate(p.Pipeline.Ref, 14),
-				shortSHA(p.Pipeline.SHA),
-				fmt.Sprintf("#%d", p.Pipeline.ID),
-				p.JobSummary,
-				formatTime(p.Pipeline.UpdatedAt),
-			}
-		} else {
-			row = table.Row{
-				statusIcon(p.Pipeline.Status),
-				truncate(p.ProjectPath, 26),
-				truncate(p.Pipeline.Ref, 16),
-				shortSHA(p.Pipeline.SHA),
-				fmt.Sprintf("#%d", p.Pipeline.ID),
-				p.JobSummary,
-				formatTime(p.Pipeline.UpdatedAt),
-				p.Pipeline.Source,
-			}
-		}
-		rows = append(rows, row)
+func statusIconCompact(status string) string {
+	switch status {
+	case "success":
+		return successStyle.Render("✓")
+	case "failed":
+		return failedStyle.Render("✗")
+	case "running":
+		return runningStyle.Render("●")
+	case "pending":
+		return pendingStyle.Render("○")
+	case "canceled":
+		return canceledStyle.Render("⊘")
+	case "skipped":
+		return skippedStyle.Render("⊘")
+	default:
+		return "?"
 	}
-	return rows
 }
 
 func statusIcon(status string) string {
@@ -375,28 +376,18 @@ func formatError(err error) error {
 	return err
 }
 
-func tableStyles() table.Styles {
-	s := table.DefaultStyles()
-	s.Header = s.Header.
-		BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(lipgloss.Color("240")).
-		BorderBottom(true).
-		Bold(true)
-	s.Selected = s.Selected.
-		Foreground(lipgloss.Color("229")).
-		Background(lipgloss.Color("57")).
-		Bold(false)
-	return s
-}
-
 var (
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2)
 	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).MarginLeft(2)
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).MarginLeft(2)
+	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	successStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
 	failedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	runningStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
 	pendingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	canceledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	skippedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	selectedStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("57")).
+			Foreground(lipgloss.Color("229"))
 )
