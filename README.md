@@ -64,11 +64,11 @@ internal/config/     # Configuration
 
 ### Phase 3: Pipeline Retrieval
 
-- [ ] Fetch pipelines by SHA: `glab api "projects/:id/pipelines?sha=$SHA&user_id=$USER_ID"`
-- [ ] Fetch pipelines by ref: `glab api "projects/:id/pipelines?ref=$REF&user_id=$USER_ID"`
-- [ ] Fallback fetch: `glab api "projects/:id/pipelines?user_id=$USER_ID&order_by=updated_at&sort=desc"`
-- [ ] Fetch pipeline jobs: `glab api "projects/:id/pipelines/:pipeline_id/jobs"`
-- [ ] Pagination support for pipeline endpoints
+- [x] Fetch pipelines by SHA: `glab api "projects/:id/pipelines?sha=$SHA&user_id=$USER_ID"`
+- [x] Fetch pipelines by ref: `glab api "projects/:id/pipelines?ref=$REF&user_id=$USER_ID"`
+- [x] Fallback fetch: `glab api "projects/:id/pipelines?user_id=$USER_ID&order_by=updated_at&sort=desc"`
+- [x] Fetch pipeline jobs: `glab api "projects/:id/pipelines/:pipeline_id/jobs"`
+- [x] Pagination support for pipeline endpoints
 
 ### Phase 4: TUI — Pipeline List
 
