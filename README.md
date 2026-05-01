@@ -81,10 +81,10 @@ internal/config/     # Configuration
 
 ### Phase 5: TUI — Pipeline Details
 
-- [ ] Pipeline detail view (metadata + job list)
-- [ ] Job status display
-- [ ] Navigation back to pipeline list
-- [ ] Keyboard shortcut help
+- [x] Pipeline detail view (metadata + job list)
+- [x] Job status display
+- [x] Navigation back to pipeline list
+- [x] Keyboard shortcut help
 
 ### Phase 6: Polish
 
