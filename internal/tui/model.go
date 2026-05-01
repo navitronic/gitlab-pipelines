@@ -52,11 +52,12 @@ func New() Model {
 
 	columns := []table.Column{
 		{Title: "Status", Width: 10},
-		{Title: "Project", Width: 30},
-		{Title: "Ref", Width: 20},
+		{Title: "Project", Width: 28},
+		{Title: "Ref", Width: 18},
 		{Title: "Commit", Width: 10},
 		{Title: "Pipeline", Width: 10},
-		{Title: "Updated", Width: 18},
+		{Title: "Jobs", Width: 10},
+		{Title: "Updated", Width: 16},
 		{Title: "Source", Width: 12},
 	}
 
@@ -183,10 +184,11 @@ func buildRows(pipelines []PipelineRow) []table.Row {
 	for _, p := range pipelines {
 		rows = append(rows, table.Row{
 			statusIcon(p.Pipeline.Status),
-			truncate(p.ProjectPath, 28),
-			truncate(p.Pipeline.Ref, 18),
+			truncate(p.ProjectPath, 26),
+			truncate(p.Pipeline.Ref, 16),
 			shortSHA(p.Pipeline.SHA),
 			fmt.Sprintf("#%d", p.Pipeline.ID),
+			p.JobSummary,
 			formatTime(p.Pipeline.UpdatedAt),
 			p.Pipeline.Source,
 		})

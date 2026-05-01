@@ -53,10 +53,32 @@ func loadPipelines(ctx context.Context, client *glab.Client) ([]tui.PipelineRow,
 				continue
 			}
 		}
+		if len(pipelines) == 0 {
+			pipelines, _ = client.FetchPipelinesFallback(ctx, c.ProjectID, user.ID)
+		}
 		for _, pipeline := range pipelines {
+			jobSummary := ""
+			jobs, err := client.FetchPipelineJobs(ctx, c.ProjectID, pipeline.ID)
+			if err == nil && len(jobs) > 0 {
+				passed, failed, total := 0, 0, len(jobs)
+				for _, j := range jobs {
+					switch j.Status {
+					case "success":
+						passed++
+					case "failed":
+						failed++
+					}
+				}
+				if failed > 0 {
+					jobSummary = fmt.Sprintf("%d/%d fail", failed, total)
+				} else {
+					jobSummary = fmt.Sprintf("%d/%d pass", passed, total)
+				}
+			}
 			rows = append(rows, tui.PipelineRow{
 				Pipeline:    pipeline,
 				ProjectPath: c.ProjectPath,
+				JobSummary:  jobSummary,
 			})
 		}
 	}
