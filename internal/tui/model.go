@@ -3,6 +3,8 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -135,6 +137,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.err = nil
 				return m, tea.Batch(m.spinner.Tick, m.Refresh())
 			}
+		case "o":
+			if len(m.pipelines) > 0 && m.cursor < len(m.pipelines) {
+				if url := m.pipelines[m.cursor].Pipeline.WebURL; url != "" {
+					openBrowser(url)
+				}
+			}
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
@@ -232,10 +240,9 @@ func (m Model) View() string {
 		return "\n  No pipelines found.\n\n" + helpStyle.Render("r: refresh • q: quit") + "\n"
 	}
 
-	titleBar := m.renderTitleBar()
 	statusBar := m.renderStatusBar()
 
-	paneHeight := max(m.height-2, 1)
+	paneHeight := max(m.height-1, 1)
 
 	listW := m.listWidth()
 	detailW := m.detailWidth()
@@ -254,25 +261,30 @@ func (m Model) View() string {
 		Render(detailPane)
 
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, listBox, detailBox)
-	return titleBar + "\n" + panes + "\n" + statusBar
-}
-
-func (m Model) renderTitleBar() string {
-	title := "GitLab Pipelines"
-	if m.loading {
-		title += " " + m.spinner.View()
-	}
-	return titleBarStyle.Width(m.width).Render(title)
+	return panes + "\n" + statusBar
 }
 
 func (m Model) renderStatusBar() string {
-	left := "↑/↓: navigate • r: refresh • q: quit"
-	right := fmt.Sprintf("%d pipelines", len(m.pipelines))
-	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
-	return statusBarStyle.Width(m.width).Render(left + strings.Repeat(" ", gap) + right)
+	left := ""
+	if m.loading {
+		left = dimStyle.Render("syncing...")
+	}
+	center := "↑/↓: navigate • o: open • r: refresh • q: quit"
+
+	leftWidth := lipgloss.Width(left)
+	centerWidth := lipgloss.Width(center)
+	padding := (m.width - centerWidth) / 2
+
+	leftPad := max(padding-leftWidth, 0)
+	rightPad := max(m.width-leftWidth-leftPad-centerWidth, 0)
+
+	content := left + strings.Repeat(" ", leftPad) + center + strings.Repeat(" ", rightPad)
+	return statusBarStyle.Width(m.width).Render(content)
 }
 
 func (m Model) renderListPane(width int) string {
+	header := listTitleStyle.Render("Pipelines")
+
 	visible := m.visibleItems()
 	end := min(m.offset+visible, len(m.pipelines))
 
@@ -282,7 +294,7 @@ func (m Model) renderListPane(width int) string {
 		rows = append(rows, renderPipelineItem(m.pipelines[i], width, selected))
 	}
 
-	return strings.Join(rows, "\n\n")
+	return header + "\n\n" + strings.Join(rows, "\n\n")
 }
 
 func renderPipelineItem(p PipelineRow, width int, selected bool) string {
@@ -396,6 +408,17 @@ func formatTime(t time.Time) string {
 	}
 }
 
+func openBrowser(url string) {
+	switch runtime.GOOS {
+	case "darwin":
+		exec.Command("open", url).Start()
+	case "linux":
+		exec.Command("xdg-open", url).Start()
+	case "windows":
+		exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	}
+}
+
 func formatError(err error) error {
 	if errors.Is(err, glab.ErrGlabNotFound) {
 		return fmt.Errorf("glab CLI not found. Install it: https://gitlab.com/gitlab-org/cli")
@@ -407,12 +430,7 @@ func formatError(err error) error {
 }
 
 var (
-	titleBarStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("229")).
-			Background(lipgloss.Color("57")).
-			PaddingLeft(1).
-			PaddingRight(1)
+	listTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2).MarginTop(1)
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("229")).
 			Background(lipgloss.Color("236")).
@@ -428,6 +446,6 @@ var (
 	canceledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	skippedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	selectedStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("57")).
+			Background(lipgloss.Color("238")).
 			Foreground(lipgloss.Color("229"))
 )
