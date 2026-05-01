@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/navitronic/gitlab-builds/internal/gitlab"
@@ -68,6 +69,33 @@ func (d *DetailModel) View() string {
 	return b.String()
 }
 
+func (d *DetailModel) hasActiveJobs() bool {
+	for _, job := range d.jobs {
+		if job.Status == "running" || job.Status == "pending" {
+			return true
+		}
+	}
+	return false
+}
+
+func jobDuration(job gitlab.Job) string {
+	switch job.Status {
+	case "running":
+		if !job.StartedAt.IsZero() {
+			return fmt.Sprintf(" (%s)", formatDuration(time.Since(job.StartedAt).Seconds()))
+		}
+	case "pending":
+		if !job.CreatedAt.IsZero() {
+			return fmt.Sprintf(" (waiting %s)", formatDuration(time.Since(job.CreatedAt).Seconds()))
+		}
+	default:
+		if job.Duration > 0 {
+			return fmt.Sprintf(" (%s)", formatDuration(job.Duration))
+		}
+	}
+	return ""
+}
+
 func (d *DetailModel) renderJobs() string {
 	var b strings.Builder
 
@@ -85,11 +113,7 @@ func (d *DetailModel) renderJobs() string {
 	for _, stage := range stageOrder {
 		b.WriteString(fmt.Sprintf("  %s\n", stageStyle.Render(stage)))
 		for _, job := range stageJobs[stage] {
-			duration := ""
-			if job.Duration > 0 {
-				duration = fmt.Sprintf(" (%s)", formatDuration(job.Duration))
-			}
-			b.WriteString(fmt.Sprintf("    %s %s%s\n", jobStatusIcon(job.Status), job.Name, duration))
+			b.WriteString(fmt.Sprintf("    %s %s%s\n", jobStatusIcon(job.Status), job.Name, jobDuration(job)))
 		}
 	}
 	return b.String()
