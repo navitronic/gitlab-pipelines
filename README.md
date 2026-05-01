@@ -72,12 +72,12 @@ internal/config/     # Configuration
 
 ### Phase 4: TUI — Pipeline List
 
-- [ ] Bubble Tea model setup
-- [ ] Pipeline list table view
-  - [ ] Columns: Status | Project | Ref | Commit | Pipeline | Jobs | Updated | Source
-- [ ] Keyboard navigation (up/down, enter to select)
-- [ ] Status indicators with lipgloss styling
-- [ ] Loading state while fetching data
+- [x] Bubble Tea model setup
+- [x] Pipeline list table view
+  - [x] Columns: Status | Project | Ref | Commit | Pipeline | Jobs | Updated | Source
+- [x] Keyboard navigation (up/down, enter to select)
+- [x] Status indicators with lipgloss styling
+- [x] Loading state while fetching data
 
 ### Phase 5: TUI — Pipeline Details
 
