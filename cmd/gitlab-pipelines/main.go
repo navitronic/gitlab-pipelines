@@ -16,6 +16,12 @@ func main() {
 	client := glab.New()
 
 	m := tui.New()
+	m.FetchJobs = func(projectID, pipelineID int) tea.Cmd {
+		return func() tea.Msg {
+			jobs, err := client.FetchPipelineJobs(ctx, projectID, pipelineID)
+			return tui.JobsLoadedMsg{Jobs: jobs, Err: err}
+		}
+	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	go func() {
