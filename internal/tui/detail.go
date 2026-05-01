@@ -123,12 +123,13 @@ func (d *DetailModel) renderJobs() string {
 		b.WriteString(fmt.Sprintf("  %s\n", stageStyle.Render(stage)))
 		for _, job := range stageJobs[stage] {
 			icon := jobStatusIcon(job.Status)
-			name := job.Name + jobDuration(job)
+			name := job.Name
+			dur := jobDuration(job)
 			if job.Status == "running" {
 				icon = runningStyle.Render(spinnerFrames[d.frame%len(spinnerFrames)])
 				name = runningBoldStyle.Render(name)
 			}
-			b.WriteString(fmt.Sprintf("    %s %s\n", icon, name))
+			b.WriteString(fmt.Sprintf("    %s %s%s\n", icon, name, dur))
 		}
 	}
 	return b.String()
@@ -168,5 +169,5 @@ var (
 	detailHelpStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).MarginLeft(2).MarginTop(1)
 	jobHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2)
 	stageStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("69"))
-	runningBoldStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("33"))
+	runningBoldStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
 )

@@ -118,9 +118,10 @@ func TestVisibleItems(t *testing.T) {
 		{3, 1},
 		{5, 1},
 		{7, 1},
-		{8, 2},
-		{24, 10},
-		{40, 18},
+		{8, 1},
+		{9, 2},
+		{24, 7},
+		{40, 12},
 	}
 	for _, tt := range tests {
 		m := Model{height: tt.height}
