@@ -86,7 +86,7 @@ func scheduleRefresh() tea.Cmd {
 }
 
 func scheduleDetailTick() tea.Cmd {
-	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg {
 		return detailTickMsg{}
 	})
 }
@@ -103,10 +103,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // visibleItems returns how many 2-line pipeline items fit in the viewport.
 func (m Model) visibleItems() int {
 	available := m.height - 4
-	if available < 2 {
+	if available < 3 {
 		return 1
 	}
-	return available / 2
+	return (available + 1) / 3
 }
 
 func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -203,6 +203,9 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case JobsLoadedMsg:
 		if m.detail != nil {
 			m.detail.SetJobs(msg.Jobs, msg.Err)
+			if m.detail.hasActiveJobs() {
+				return m, scheduleDetailTick()
+			}
 		}
 	case PipelineUpdatedMsg:
 		if m.detail != nil && msg.Err == nil {
@@ -266,7 +269,7 @@ func (m Model) viewList() string {
 		rows = append(rows, renderPipelineItem(m.pipelines[i], m.width, selected))
 	}
 
-	list := strings.Join(rows, "\n")
+	list := strings.Join(rows, "\n\n")
 	help := helpStyle.Render("↑/↓: navigate • enter: details • r: refresh • q: quit")
 	return header + "\n\n" + list + "\n" + help
 }
