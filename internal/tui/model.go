@@ -186,6 +186,10 @@ func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.detail.SetJobs(msg.Jobs, msg.Err)
 		}
 	case refreshTickMsg:
+		if m.detail != nil && m.FetchJobs != nil {
+			row := m.detail.row
+			return m, tea.Batch(m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID), scheduleRefresh())
+		}
 		return m, scheduleRefresh()
 	}
 	return m, nil
