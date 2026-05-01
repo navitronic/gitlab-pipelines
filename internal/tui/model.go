@@ -13,13 +13,6 @@ import (
 	"github.com/navitronic/gitlab-builds/internal/glab"
 )
 
-type view int
-
-const (
-	viewList view = iota
-	viewDetail
-)
-
 const refreshInterval = 30 * time.Second
 
 // PipelinesLoadedMsg signals that pipelines have been fetched.
@@ -46,16 +39,16 @@ type PipelineRow struct {
 
 // Model is the top-level Bubble Tea model.
 type Model struct {
-	spinner     spinner.Model
-	pipelines   []PipelineRow
-	cursor      int
-	offset      int
-	loading     bool
-	err         error
-	width       int
-	height      int
-	currentView view
-	detail      *DetailModel
+	spinner       spinner.Model
+	pipelines     []PipelineRow
+	cursor        int
+	offset        int
+	loading       bool
+	err           error
+	width         int
+	height        int
+	detail        *DetailModel
+	selectedID    int
 	FetchJobs     func(projectID, pipelineID int) tea.Cmd
 	FetchPipeline func(projectID, pipelineID int) tea.Cmd
 	Refresh       func() tea.Cmd
@@ -91,13 +84,12 @@ func scheduleDetailTick() tea.Cmd {
 	})
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch m.currentView {
-	case viewDetail:
-		return m.updateDetail(msg)
-	default:
-		return m.updateList(msg)
-	}
+func (m Model) listWidth() int {
+	return min(max(m.width*2/5, 30), m.width)
+}
+
+func (m Model) detailWidth() int {
+	return m.width - m.listWidth()
 }
 
 // visibleItems returns how many 2-line pipeline items fit in the viewport.
@@ -109,7 +101,29 @@ func (m Model) visibleItems() int {
 	return (available + 1) / 3
 }
 
-func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) selectPipeline() (Model, tea.Cmd) {
+	if len(m.pipelines) == 0 {
+		m.detail = nil
+		m.selectedID = 0
+		return m, nil
+	}
+	row := m.pipelines[m.cursor]
+	if row.Pipeline.ID == m.selectedID {
+		return m, nil
+	}
+	m.selectedID = row.Pipeline.ID
+	m.detail = NewDetailModel(row)
+	var cmds []tea.Cmd
+	if m.FetchJobs != nil {
+		cmds = append(cmds, m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID))
+	}
+	if m.FetchPipeline != nil {
+		cmds = append(cmds, m.FetchPipeline(row.Pipeline.ProjectID, row.Pipeline.ID))
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -127,6 +141,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor < m.offset {
 					m.offset = m.cursor
 				}
+				return m.selectPipeline()
 			}
 		case "down", "j":
 			if m.cursor < len(m.pipelines)-1 {
@@ -135,18 +150,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor >= m.offset+visible {
 					m.offset = m.cursor - visible + 1
 				}
-			}
-		case "enter":
-			if len(m.pipelines) > 0 && m.cursor >= 0 && m.cursor < len(m.pipelines) {
-				m.currentView = viewDetail
-				m.detail = NewDetailModel(m.pipelines[m.cursor])
-				var cmds []tea.Cmd
-				cmds = append(cmds, scheduleDetailTick())
-				if m.FetchJobs != nil {
-					row := m.pipelines[m.cursor]
-					cmds = append(cmds, m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID))
-				}
-				return m, tea.Batch(cmds...)
+				return m.selectPipeline()
 			}
 		}
 
@@ -166,14 +170,43 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.cursor >= len(m.pipelines) {
 			m.cursor = max(0, len(m.pipelines)-1)
 		}
-		return m, nil
+		m, cmd := m.selectPipeline()
+		return m, cmd
+
+	case JobsLoadedMsg:
+		if m.detail != nil {
+			m.detail.SetJobs(msg.Jobs, msg.Err)
+			if m.detail.hasActiveJobs() {
+				return m, scheduleDetailTick()
+			}
+		}
+
+	case PipelineUpdatedMsg:
+		if m.detail != nil && msg.Err == nil {
+			m.detail.row.Pipeline = msg.Pipeline
+		}
 
 	case refreshTickMsg:
-		if !m.loading && m.Refresh != nil && m.currentView == viewList {
+		var cmds []tea.Cmd
+		if !m.loading && m.Refresh != nil {
 			m.loading = true
-			return m, tea.Batch(m.spinner.Tick, m.Refresh(), scheduleRefresh())
+			cmds = append(cmds, m.spinner.Tick, m.Refresh())
 		}
-		return m, scheduleRefresh()
+		if m.detail != nil && m.FetchJobs != nil {
+			row := m.detail.row
+			cmds = append(cmds, m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID))
+			if m.FetchPipeline != nil {
+				cmds = append(cmds, m.FetchPipeline(row.Pipeline.ProjectID, row.Pipeline.ID))
+			}
+		}
+		cmds = append(cmds, scheduleRefresh())
+		return m, tea.Batch(cmds...)
+
+	case detailTickMsg:
+		if m.detail != nil && m.detail.hasActiveJobs() {
+			m.detail.Tick()
+			return m, scheduleDetailTick()
+		}
 
 	case spinner.TickMsg:
 		if m.loading {
@@ -186,63 +219,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateDetail(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case "esc", "backspace":
-			m.currentView = viewList
-			m.detail = nil
-			return m, nil
-		}
-	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-	case JobsLoadedMsg:
-		if m.detail != nil {
-			m.detail.SetJobs(msg.Jobs, msg.Err)
-			if m.detail.hasActiveJobs() {
-				return m, scheduleDetailTick()
-			}
-		}
-	case PipelineUpdatedMsg:
-		if m.detail != nil && msg.Err == nil {
-			m.detail.row.Pipeline = msg.Pipeline
-		}
-	case refreshTickMsg:
-		if m.detail != nil && m.FetchJobs != nil {
-			row := m.detail.row
-			cmds := []tea.Cmd{m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID), scheduleRefresh()}
-			if m.FetchPipeline != nil {
-				cmds = append(cmds, m.FetchPipeline(row.Pipeline.ProjectID, row.Pipeline.ID))
-			}
-			return m, tea.Batch(cmds...)
-		}
-		return m, scheduleRefresh()
-	case detailTickMsg:
-		if m.detail != nil && m.detail.hasActiveJobs() {
-			m.detail.Tick()
-			return m, scheduleDetailTick()
-		}
-	}
-	return m, nil
-}
-
 func (m Model) View() string {
-	switch m.currentView {
-	case viewDetail:
-		if m.detail != nil {
-			return m.detail.View()
-		}
-		return ""
-	default:
-		return m.viewList()
-	}
-}
-
-func (m Model) viewList() string {
 	if m.err != nil && len(m.pipelines) == 0 {
 		errMsg := errorStyle.Render(fmt.Sprintf("Error: %v", m.err))
 		hint := helpStyle.Render("r: retry • q: quit")
@@ -255,7 +232,27 @@ func (m Model) viewList() string {
 		return "\n  No pipelines found.\n\n" + helpStyle.Render("r: refresh • q: quit") + "\n"
 	}
 
-	header := titleStyle.Render("GitLab Pipelines")
+	listW := m.listWidth()
+	detailW := m.detailWidth()
+
+	listPane := m.renderListPane(listW)
+	detailPane := ""
+	if m.detail != nil {
+		detailPane = m.detail.Render(detailW, m.height)
+	}
+
+	listBox := lipgloss.NewStyle().Width(listW).Height(m.height).Render(listPane)
+	detailBox := lipgloss.NewStyle().Width(detailW).Height(m.height).
+		BorderLeft(true).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(lipgloss.Color("240")).
+		Render(detailPane)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, listBox, detailBox)
+}
+
+func (m Model) renderListPane(width int) string {
+	header := titleStyle.Render("Pipelines")
 	if m.loading {
 		header += " " + m.spinner.View()
 	}
@@ -266,11 +263,11 @@ func (m Model) viewList() string {
 	var rows []string
 	for i := m.offset; i < end; i++ {
 		selected := i == m.cursor
-		rows = append(rows, renderPipelineItem(m.pipelines[i], m.width, selected))
+		rows = append(rows, renderPipelineItem(m.pipelines[i], width, selected))
 	}
 
 	list := strings.Join(rows, "\n\n")
-	help := helpStyle.Render("↑/↓: navigate • enter: details • r: refresh • q: quit")
+	help := helpStyle.Render("↑/↓: navigate • r: refresh • q: quit")
 	return header + "\n\n" + list + "\n" + help
 }
 

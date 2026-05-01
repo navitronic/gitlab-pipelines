@@ -173,3 +173,64 @@ func TestRenderPipelineItem(t *testing.T) {
 		t.Fatal("renderPipelineItem (selected) returned empty string")
 	}
 }
+
+func TestSelectPipeline(t *testing.T) {
+	m := Model{
+		width:  120,
+		height: 24,
+		pipelines: []PipelineRow{
+			{Pipeline: gitlab.Pipeline{ID: 1, Status: "success"}, ProjectPath: "a/b"},
+			{Pipeline: gitlab.Pipeline{ID: 2, Status: "running"}, ProjectPath: "c/d"},
+		},
+	}
+
+	m, _ = m.selectPipeline()
+	if m.detail == nil {
+		t.Fatal("detail should be set after selectPipeline")
+	}
+	if m.selectedID != 1 {
+		t.Errorf("selectedID = %d, want 1", m.selectedID)
+	}
+
+	m.cursor = 1
+	m, _ = m.selectPipeline()
+	if m.selectedID != 2 {
+		t.Errorf("selectedID = %d, want 2", m.selectedID)
+	}
+}
+
+func TestDetailRender(t *testing.T) {
+	d := NewDetailModel(PipelineRow{
+		Pipeline: gitlab.Pipeline{
+			ID:     42,
+			SHA:    "abc123",
+			Ref:    "main",
+			Status: "success",
+			Source: "push",
+		},
+		ProjectPath: "group/project",
+	})
+
+	got := d.Render(60, 24)
+	if got == "" {
+		t.Fatal("DetailModel.Render returned empty string")
+	}
+}
+
+func TestListWidth(t *testing.T) {
+	tests := []struct {
+		width    int
+		wantList int
+	}{
+		{120, 48},
+		{80, 32},
+		{60, 30},
+		{20, 20},
+	}
+	for _, tt := range tests {
+		m := Model{width: tt.width}
+		if got := m.listWidth(); got != tt.wantList {
+			t.Errorf("listWidth(width=%d) = %d, want %d", tt.width, got, tt.wantList)
+		}
+	}
+}
