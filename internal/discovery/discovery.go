@@ -19,7 +19,8 @@ func New(client *glab.Client) *Discoverer {
 }
 
 // Discover fetches user events and extracts deduplicated pipeline candidates.
-func (d *Discoverer) Discover(ctx context.Context, userID int, maxPages int) ([]gitlab.PipelineCandidate, error) {
+// Results are capped at maxCandidates (0 = no limit).
+func (d *Discoverer) Discover(ctx context.Context, userID int, maxPages int, maxCandidates int) ([]gitlab.PipelineCandidate, error) {
 	events, err := d.client.FetchUserEvents(ctx, userID, maxPages)
 	if err != nil {
 		return nil, fmt.Errorf("discovering pipelines: %w", err)
@@ -27,6 +28,10 @@ func (d *Discoverer) Discover(ctx context.Context, userID int, maxPages int) ([]
 
 	candidates := ExtractCandidates(events)
 	deduped := Deduplicate(candidates)
+
+	if maxCandidates > 0 && len(deduped) > maxCandidates {
+		deduped = deduped[:maxCandidates]
+	}
 
 	projectPaths := make(map[int]string)
 	for i, c := range deduped {
