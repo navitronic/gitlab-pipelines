@@ -130,6 +130,7 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 			h = 1
 		}
 		m.table.SetHeight(h)
+		m.table.SetRows(nil)
 		m.table.SetColumns(defaultColumns(msg.Width))
 		if len(m.pipelines) > 0 {
 			m.table.SetRows(buildRows(m.pipelines, msg.Width))
