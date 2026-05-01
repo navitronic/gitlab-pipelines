@@ -122,12 +122,19 @@ func (m Model) updateList(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.table.SetWidth(msg.Width)
-		m.table.SetHeight(msg.Height - 4)
+		if msg.Width > 0 {
+			m.table.SetWidth(msg.Width)
+		}
+		h := msg.Height - 4
+		if h < 1 {
+			h = 1
+		}
+		m.table.SetHeight(h)
 		m.table.SetColumns(defaultColumns(msg.Width))
 		if len(m.pipelines) > 0 {
 			m.table.SetRows(buildRows(m.pipelines, msg.Width))
 		}
+		return m, nil
 
 	case PipelinesLoadedMsg:
 		m.loading = false
