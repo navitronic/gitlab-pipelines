@@ -88,10 +88,10 @@ internal/config/     # Configuration
 
 ### Phase 6: Polish
 
-- [ ] Graceful handling of missing/unauthenticated glab
-- [ ] Error display in TUI (not panic)
-- [ ] Auto-refresh / manual refresh
-- [ ] Responsive layout for different terminal sizes
+- [x] Graceful handling of missing/unauthenticated glab
+- [x] Error display in TUI (not panic)
+- [x] Auto-refresh / manual refresh
+- [x] Responsive layout for different terminal sizes
 
 ---
 
