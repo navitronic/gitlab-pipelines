@@ -26,7 +26,20 @@ func (d *Discoverer) Discover(ctx context.Context, userID int, maxPages int) ([]
 	}
 
 	candidates := ExtractCandidates(events)
-	return Deduplicate(candidates), nil
+	deduped := Deduplicate(candidates)
+
+	projectPaths := make(map[int]string)
+	for i, c := range deduped {
+		if _, ok := projectPaths[c.ProjectID]; !ok {
+			project, err := d.client.FetchProject(ctx, c.ProjectID)
+			if err == nil {
+				projectPaths[c.ProjectID] = project.PathWithNamespace
+			}
+		}
+		deduped[i].ProjectPath = projectPaths[c.ProjectID]
+	}
+
+	return deduped, nil
 }
 
 // ExtractCandidates converts events into pipeline candidates.
