@@ -94,7 +94,7 @@ func (m Model) detailWidth() int {
 
 // visibleItems returns how many 2-line pipeline items fit in the viewport.
 func (m Model) visibleItems() int {
-	available := m.height - 4
+	available := m.height - 3
 	if available < 3 {
 		return 1
 	}
@@ -232,31 +232,47 @@ func (m Model) View() string {
 		return "\n  No pipelines found.\n\n" + helpStyle.Render("r: refresh • q: quit") + "\n"
 	}
 
+	titleBar := m.renderTitleBar()
+	statusBar := m.renderStatusBar()
+
+	paneHeight := max(m.height-2, 1)
+
 	listW := m.listWidth()
 	detailW := m.detailWidth()
 
 	listPane := m.renderListPane(listW)
 	detailPane := ""
 	if m.detail != nil {
-		detailPane = m.detail.Render(detailW, m.height)
+		detailPane = m.detail.Render(detailW, paneHeight)
 	}
 
-	listBox := lipgloss.NewStyle().Width(listW).Height(m.height).Render(listPane)
-	detailBox := lipgloss.NewStyle().Width(detailW).Height(m.height).
+	listBox := lipgloss.NewStyle().Width(listW).Height(paneHeight).Render(listPane)
+	detailBox := lipgloss.NewStyle().Width(detailW).Height(paneHeight).
 		BorderLeft(true).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("240")).
 		Render(detailPane)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, listBox, detailBox)
+	panes := lipgloss.JoinHorizontal(lipgloss.Top, listBox, detailBox)
+	return titleBar + "\n" + panes + "\n" + statusBar
+}
+
+func (m Model) renderTitleBar() string {
+	title := "GitLab Pipelines"
+	if m.loading {
+		title += " " + m.spinner.View()
+	}
+	return titleBarStyle.Width(m.width).Render(title)
+}
+
+func (m Model) renderStatusBar() string {
+	left := "↑/↓: navigate • r: refresh • q: quit"
+	right := fmt.Sprintf("%d pipelines", len(m.pipelines))
+	gap := max(m.width-lipgloss.Width(left)-lipgloss.Width(right)-2, 1)
+	return statusBarStyle.Width(m.width).Render(left + strings.Repeat(" ", gap) + right)
 }
 
 func (m Model) renderListPane(width int) string {
-	header := titleStyle.Render("Pipelines")
-	if m.loading {
-		header += " " + m.spinner.View()
-	}
-
 	visible := m.visibleItems()
 	end := min(m.offset+visible, len(m.pipelines))
 
@@ -266,9 +282,7 @@ func (m Model) renderListPane(width int) string {
 		rows = append(rows, renderPipelineItem(m.pipelines[i], width, selected))
 	}
 
-	list := strings.Join(rows, "\n\n")
-	help := helpStyle.Render("↑/↓: navigate • r: refresh • q: quit")
-	return header + "\n\n" + list + "\n" + help
+	return strings.Join(rows, "\n\n")
 }
 
 func renderPipelineItem(p PipelineRow, width int, selected bool) string {
@@ -393,7 +407,17 @@ func formatError(err error) error {
 }
 
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2)
+	titleBarStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("229")).
+			Background(lipgloss.Color("57")).
+			PaddingLeft(1).
+			PaddingRight(1)
+	statusBarStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("229")).
+			Background(lipgloss.Color("236")).
+			PaddingLeft(1).
+			PaddingRight(1)
 	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).MarginLeft(2)
 	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).MarginLeft(2)
 	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
