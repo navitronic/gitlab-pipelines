@@ -22,16 +22,18 @@ type PipelineCandidate struct {
 
 // Pipeline represents a GitLab CI pipeline.
 type Pipeline struct {
-	ID        int       `json:"id"`
-	IID       int       `json:"iid"`
-	ProjectID int       `json:"project_id"`
-	SHA       string    `json:"sha"`
-	Ref       string    `json:"ref"`
-	Status    string    `json:"status"`
-	Source    string    `json:"source"`
-	WebURL    string    `json:"web_url"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID             int       `json:"id"`
+	IID            int       `json:"iid"`
+	ProjectID      int       `json:"project_id"`
+	SHA            string    `json:"sha"`
+	Ref            string    `json:"ref"`
+	Status         string    `json:"status"`
+	Source         string    `json:"source"`
+	WebURL         string    `json:"web_url"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	Duration       float64   `json:"duration"`
+	QueuedDuration float64   `json:"queued_duration"`
 }
 
 // Job represents a job within a pipeline.

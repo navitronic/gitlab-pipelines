@@ -55,6 +55,7 @@ func (d *DetailModel) Render(width, height int) string {
 	b.WriteString(fmt.Sprintf("  SHA:      %s\n", p.SHA))
 	b.WriteString(fmt.Sprintf("  Source:   %s\n", p.Source))
 	b.WriteString(fmt.Sprintf("  Updated:  %s\n", formatTime(p.UpdatedAt)))
+	b.WriteString(fmt.Sprintf("  Duration: %s\n", pipelineDuration(p)))
 	if p.WebURL != "" {
 		b.WriteString(fmt.Sprintf("  URL:      %s\n", p.WebURL))
 	}
@@ -74,6 +75,20 @@ func (d *DetailModel) Render(width, height int) string {
 	}
 
 	return b.String()
+}
+
+func pipelineDuration(p gitlab.Pipeline) string {
+	switch p.Status {
+	case "running", "pending":
+		if !p.CreatedAt.IsZero() {
+			return formatDuration(time.Since(p.CreatedAt).Seconds())
+		}
+	default:
+		if p.Duration > 0 {
+			return formatDuration(p.Duration)
+		}
+	}
+	return "-"
 }
 
 func (d *DetailModel) hasActiveJobs() bool {
