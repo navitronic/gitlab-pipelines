@@ -48,12 +48,12 @@ internal/config/     # Configuration
 
 ### Phase 1: Foundation
 
-- [ ] Project scaffolding (go.mod, directory structure, main.go)
-- [ ] glab client wrapper (`internal/glab/`)
-  - [ ] `runGlab(ctx, args...)` exec helper
-  - [ ] JSON response parsing
-  - [ ] Error handling (missing binary, auth failure)
-- [ ] Fetch current user via `glab api user`
+- [x] Project scaffolding (go.mod, directory structure, main.go)
+- [x] glab client wrapper (`internal/glab/`)
+  - [x] `runGlab(ctx, args...)` exec helper
+  - [x] JSON response parsing
+  - [x] Error handling (missing binary, auth failure)
+- [x] Fetch current user via `glab api user`
 
 ### Phase 2: Discovery
 
