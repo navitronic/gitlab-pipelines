@@ -6,33 +6,29 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
+	"github.com/navitronic/gitlab-builds/internal/pipeline"
 )
 
-// JobsLoadedMsg signals that jobs for a pipeline have been fetched.
 type JobsLoadedMsg struct {
-	Jobs []gitlab.Job
+	Jobs []pipeline.Job
 	Err  error
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// DetailModel renders the detail view for a selected pipeline.
 type DetailModel struct {
 	row         PipelineRow
-	jobs        []gitlab.Job
+	jobs        []pipeline.Job
 	jobsLoading bool
 	jobsErr     error
 	frame       int
 }
 
-// NewDetailModel creates a detail model for the given pipeline row.
 func NewDetailModel(row PipelineRow) *DetailModel {
 	return &DetailModel{row: row, jobsLoading: true}
 }
 
-func (d *DetailModel) SetJobs(jobs []gitlab.Job, err error) {
+func (d *DetailModel) SetJobs(jobs []pipeline.Job, err error) {
 	d.jobsLoading = false
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ID < jobs[j].ID })
 	d.jobs = jobs
@@ -47,9 +43,9 @@ func (d *DetailModel) Render(width, height int) string {
 	p := d.row.Pipeline
 
 	var b strings.Builder
-	b.WriteString(detailTitleStyle.Render(fmt.Sprintf("Pipeline #%d", p.ID)))
+	b.WriteString(detailTitleStyle.Render(fmt.Sprintf("Pipeline #%s", p.ID)))
 	b.WriteString("\n\n")
-	b.WriteString(fmt.Sprintf("  Project:  %s\n", d.row.ProjectPath))
+	b.WriteString(fmt.Sprintf("  Project:  %s\n", p.Project))
 	b.WriteString(fmt.Sprintf("  Status:   %s\n", statusIcon(p.Status)))
 	b.WriteString(fmt.Sprintf("  Ref:      %s\n", p.Ref))
 	b.WriteString(fmt.Sprintf("  SHA:      %s\n", p.SHA))
@@ -77,11 +73,11 @@ func (d *DetailModel) Render(width, height int) string {
 	return b.String()
 }
 
-func pipelineDuration(p gitlab.Pipeline) string {
+func pipelineDuration(p pipeline.Pipeline) string {
 	switch p.Status {
-	case "running", "pending":
+	case pipeline.StatusRunning, pipeline.StatusPending:
 		if !p.CreatedAt.IsZero() {
-			return formatDuration(time.Since(p.CreatedAt).Seconds())
+			return formatDuration(time.Since(p.CreatedAt))
 		}
 	default:
 		if p.Duration > 0 {
@@ -93,22 +89,22 @@ func pipelineDuration(p gitlab.Pipeline) string {
 
 func (d *DetailModel) hasActiveJobs() bool {
 	for _, job := range d.jobs {
-		if job.Status == "running" || job.Status == "pending" {
+		if job.Status == pipeline.StatusRunning || job.Status == pipeline.StatusPending {
 			return true
 		}
 	}
 	return false
 }
 
-func jobDuration(job gitlab.Job) string {
+func jobDuration(job pipeline.Job) string {
 	switch job.Status {
-	case "running":
+	case pipeline.StatusRunning:
 		if !job.StartedAt.IsZero() {
-			return fmt.Sprintf(" (%s)", formatDuration(time.Since(job.StartedAt).Seconds()))
+			return fmt.Sprintf(" (%s)", formatDuration(time.Since(job.StartedAt)))
 		}
-	case "pending":
+	case pipeline.StatusPending:
 		if !job.CreatedAt.IsZero() {
-			return fmt.Sprintf(" (waiting %s)", formatDuration(time.Since(job.CreatedAt).Seconds()))
+			return fmt.Sprintf(" (waiting %s)", formatDuration(time.Since(job.CreatedAt)))
 		}
 	default:
 		if job.Duration > 0 {
@@ -121,7 +117,7 @@ func jobDuration(job gitlab.Job) string {
 func (d *DetailModel) renderJobs() string {
 	var b strings.Builder
 
-	stageJobs := make(map[string][]gitlab.Job)
+	stageJobs := make(map[string][]pipeline.Job)
 	var stageOrder []string
 	seen := make(map[string]bool)
 	for _, job := range d.jobs {
@@ -138,7 +134,7 @@ func (d *DetailModel) renderJobs() string {
 			icon := jobStatusIcon(job.Status)
 			name := job.Name
 			dur := jobDuration(job)
-			if job.Status == "running" {
+			if job.Status == pipeline.StatusRunning {
 				icon = runningStyle.Render(spinnerFrames[d.frame%len(spinnerFrames)])
 				name = runningBoldStyle.Render(name)
 			}
@@ -148,39 +144,31 @@ func (d *DetailModel) renderJobs() string {
 	return b.String()
 }
 
-func jobStatusIcon(status string) string {
+func jobStatusIcon(status pipeline.Status) string {
 	switch status {
-	case "success":
+	case pipeline.StatusPassed:
 		return successStyle.Render("✓")
-	case "failed":
+	case pipeline.StatusFailed:
 		return failedStyle.Render("✗")
-	case "running":
+	case pipeline.StatusRunning:
 		return runningStyle.Render("●")
-	case "pending":
+	case pipeline.StatusPending:
 		return pendingStyle.Render("○")
-	case "canceled":
+	case pipeline.StatusCanceled:
 		return canceledStyle.Render("⊘")
-	case "skipped":
+	case pipeline.StatusSkipped:
 		return skippedStyle.Render("⊘")
-	case "manual":
-		return pendingStyle.Render("▶")
 	default:
 		return "?"
 	}
 }
 
-func formatDuration(seconds float64) string {
+func formatDuration(d time.Duration) string {
+	seconds := int(d.Seconds())
 	if seconds < 60 {
-		return fmt.Sprintf("%.0fs", seconds)
+		return fmt.Sprintf("%ds", seconds)
 	}
-	m := int(seconds) / 60
-	s := int(seconds) % 60
+	m := seconds / 60
+	s := seconds % 60
 	return fmt.Sprintf("%dm%ds", m, s)
 }
-
-var (
-	detailTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2).MarginTop(1)
-	jobHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2)
-	stageStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("69"))
-	runningBoldStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
-)
