@@ -11,8 +11,7 @@ import (
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
-	"github.com/navitronic/gitlab-builds/internal/glab"
+	"github.com/navitronic/gitlab-builds/internal/pipeline"
 )
 
 const refreshInterval = 30 * time.Second
@@ -25,7 +24,7 @@ type PipelinesLoadedMsg struct {
 
 // PipelineUpdatedMsg signals that a single pipeline has been re-fetched.
 type PipelineUpdatedMsg struct {
-	Pipeline gitlab.Pipeline
+	Pipeline pipeline.Pipeline
 	Err      error
 }
 
@@ -39,9 +38,7 @@ type detailTickMsg struct{}
 
 // PipelineRow holds display data for one pipeline in the list.
 type PipelineRow struct {
-	Pipeline    gitlab.Pipeline
-	ProjectPath string
-	JobSummary  string
+	Pipeline pipeline.Pipeline
 }
 
 // Model is the top-level Bubble Tea model.
@@ -56,9 +53,9 @@ type Model struct {
 	width         int
 	height        int
 	detail        *DetailModel
-	selectedID    int
-	FetchJobs     func(projectID, pipelineID int) tea.Cmd
-	FetchPipeline func(projectID, pipelineID int) tea.Cmd
+	selectedID    string
+	FetchJobs     func(projectID, pipelineID string) tea.Cmd
+	FetchPipeline func(projectID, pipelineID string) tea.Cmd
 	Refresh       func() tea.Cmd
 }
 
@@ -111,7 +108,7 @@ func (m Model) visibleItems() int {
 func (m Model) selectPipeline() (Model, tea.Cmd) {
 	if len(m.pipelines) == 0 {
 		m.detail = nil
-		m.selectedID = 0
+		m.selectedID = ""
 		return m, nil
 	}
 	row := m.pipelines[m.cursor]
@@ -334,7 +331,7 @@ func renderPipelineItem(p PipelineRow, width int, selected bool) string {
 	}
 
 	mid1 := truncateStr(shortSHA(p.Pipeline.SHA)+" - "+p.Pipeline.Ref, midWidth)
-	mid2 := truncateStr(p.ProjectPath, midWidth)
+	mid2 := truncateStr(p.Pipeline.Project, midWidth)
 	timeStr := formatTime(p.Pipeline.UpdatedAt)
 
 	gap1 := max(innerWidth-iconWidth-lipgloss.Width(mid1)-lipgloss.Width(timeStr), 0)
@@ -368,58 +365,58 @@ func truncateStr(s string, maxWidth int) string {
 	return s
 }
 
-func statusIconRaw(status string) string {
+func statusIconRaw(status pipeline.Status) string {
 	switch status {
-	case "success":
+	case pipeline.StatusPassed:
 		return "✓"
-	case "failed":
+	case pipeline.StatusFailed:
 		return "✗"
-	case "running":
+	case pipeline.StatusRunning:
 		return "●"
-	case "pending":
+	case pipeline.StatusPending:
 		return "○"
-	case "canceled", "skipped":
+	case pipeline.StatusCanceled, pipeline.StatusSkipped:
 		return "⊘"
 	default:
 		return "?"
 	}
 }
 
-func statusIconCompact(status string) string {
+func statusIconCompact(status pipeline.Status) string {
 	switch status {
-	case "success":
+	case pipeline.StatusPassed:
 		return successStyle.Render("✓")
-	case "failed":
+	case pipeline.StatusFailed:
 		return failedStyle.Render("✗")
-	case "running":
+	case pipeline.StatusRunning:
 		return runningStyle.Render("●")
-	case "pending":
+	case pipeline.StatusPending:
 		return pendingStyle.Render("○")
-	case "canceled":
+	case pipeline.StatusCanceled:
 		return canceledStyle.Render("⊘")
-	case "skipped":
+	case pipeline.StatusSkipped:
 		return skippedStyle.Render("⊘")
 	default:
 		return "?"
 	}
 }
 
-func statusIcon(status string) string {
+func statusIcon(status pipeline.Status) string {
 	switch status {
-	case "success":
+	case pipeline.StatusPassed:
 		return successStyle.Render("✓ passed")
-	case "failed":
+	case pipeline.StatusFailed:
 		return failedStyle.Render("✗ failed")
-	case "running":
+	case pipeline.StatusRunning:
 		return runningStyle.Render("● running")
-	case "pending":
+	case pipeline.StatusPending:
 		return pendingStyle.Render("○ pending")
-	case "canceled":
+	case pipeline.StatusCanceled:
 		return canceledStyle.Render("⊘ canceled")
-	case "skipped":
+	case pipeline.StatusSkipped:
 		return skippedStyle.Render("⊘ skipped")
 	default:
-		return status
+		return "unknown"
 	}
 }
 
@@ -460,46 +457,11 @@ func openBrowser(url string) {
 }
 
 func formatError(err error) error {
-	if errors.Is(err, glab.ErrGlabNotFound) {
+	if errors.Is(err, pipeline.ErrClientNotFound) {
 		return fmt.Errorf("glab CLI not found. Install it: https://gitlab.com/gitlab-org/cli")
 	}
-	if errors.Is(err, glab.ErrAuthRequired) {
+	if errors.Is(err, pipeline.ErrAuthRequired) {
 		return fmt.Errorf("glab not authenticated. Run: glab auth login")
 	}
 	return err
 }
-
-var (
-	listTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2).MarginTop(1)
-	itemBaseStyle = lipgloss.NewStyle().
-			PaddingLeft(2).
-			PaddingRight(2).
-			PaddingTop(1).
-			PaddingBottom(1)
-	itemSelectedStyle = lipgloss.NewStyle().
-				PaddingLeft(2).
-				PaddingRight(2).
-				PaddingTop(1).
-				PaddingBottom(1).
-				Background(lipgloss.Color("238")).
-				Foreground(lipgloss.Color("229"))
-	toastStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("252")).
-			Background(lipgloss.Color("237")).
-			PaddingLeft(1).
-			PaddingRight(1)
-	statusBarStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("229")).
-			Background(lipgloss.Color("236")).
-			PaddingLeft(1).
-			PaddingRight(1)
-	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("241")).MarginLeft(2)
-	errorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).MarginLeft(2)
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	successStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("42"))
-	failedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-	runningStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
-	pendingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
-	canceledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	skippedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-)

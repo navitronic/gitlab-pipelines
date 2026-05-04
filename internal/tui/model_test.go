@@ -5,8 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
-	"github.com/navitronic/gitlab-builds/internal/glab"
+	"github.com/navitronic/gitlab-builds/internal/pipeline"
 )
 
 func TestShortSHA(t *testing.T) {
@@ -29,19 +28,19 @@ func TestShortSHA(t *testing.T) {
 
 func TestFormatDuration(t *testing.T) {
 	tests := []struct {
-		seconds float64
-		want    string
+		dur  time.Duration
+		want string
 	}{
 		{0, "0s"},
-		{30, "30s"},
-		{59.9, "60s"},
-		{60, "1m0s"},
-		{90, "1m30s"},
-		{3661, "61m1s"},
+		{30 * time.Second, "30s"},
+		{59 * time.Second, "59s"},
+		{60 * time.Second, "1m0s"},
+		{90 * time.Second, "1m30s"},
+		{3661 * time.Second, "61m1s"},
 	}
 	for _, tt := range tests {
-		if got := formatDuration(tt.seconds); got != tt.want {
-			t.Errorf("formatDuration(%v) = %q, want %q", tt.seconds, got, tt.want)
+		if got := formatDuration(tt.dur); got != tt.want {
+			t.Errorf("formatDuration(%v) = %q, want %q", tt.dur, got, tt.want)
 		}
 	}
 }
@@ -78,8 +77,8 @@ func TestFormatError(t *testing.T) {
 		err  error
 		want string
 	}{
-		{"glab not found", glab.ErrGlabNotFound, "glab CLI not found. Install it: https://gitlab.com/gitlab-org/cli"},
-		{"auth required", glab.ErrAuthRequired, "glab not authenticated. Run: glab auth login"},
+		{"client not found", pipeline.ErrClientNotFound, "glab CLI not found. Install it: https://gitlab.com/gitlab-org/cli"},
+		{"auth required", pipeline.ErrAuthRequired, "glab not authenticated. Run: glab auth login"},
 		{"other error", errors.New("some error"), "some error"},
 	}
 	for _, tt := range tests {
@@ -113,35 +112,33 @@ func TestVisibleItems(t *testing.T) {
 }
 
 func TestStatusIconCompact(t *testing.T) {
-	tests := []struct {
-		status string
-	}{
-		{"success"},
-		{"failed"},
-		{"running"},
-		{"pending"},
-		{"canceled"},
-		{"skipped"},
-		{"unknown"},
+	tests := []pipeline.Status{
+		pipeline.StatusPassed,
+		pipeline.StatusFailed,
+		pipeline.StatusRunning,
+		pipeline.StatusPending,
+		pipeline.StatusCanceled,
+		pipeline.StatusSkipped,
 	}
-	for _, tt := range tests {
-		got := statusIconCompact(tt.status)
+	for _, s := range tests {
+		got := statusIconCompact(s)
 		if got == "" {
-			t.Errorf("statusIconCompact(%q) returned empty string", tt.status)
+			t.Errorf("statusIconCompact(%v) returned empty string", s)
 		}
 	}
 }
 
 func TestRenderPipelineItem(t *testing.T) {
 	row := PipelineRow{
-		Pipeline: gitlab.Pipeline{
-			ID:        1,
+		Pipeline: pipeline.Pipeline{
+			ID:        "1",
+			ProjectID: "10",
+			Project:   "group/project",
 			SHA:       "abc123def456",
 			Ref:       "main",
-			Status:    "success",
+			Status:    pipeline.StatusPassed,
 			UpdatedAt: time.Now().Add(-5 * time.Minute),
 		},
-		ProjectPath: "group/project",
 	}
 
 	got := renderPipelineItem(row, 80, false)
@@ -160,8 +157,8 @@ func TestSelectPipeline(t *testing.T) {
 		width:  120,
 		height: 24,
 		pipelines: []PipelineRow{
-			{Pipeline: gitlab.Pipeline{ID: 1, Status: "success"}, ProjectPath: "a/b"},
-			{Pipeline: gitlab.Pipeline{ID: 2, Status: "running"}, ProjectPath: "c/d"},
+			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Status: pipeline.StatusPassed, Project: "a/b"}},
+			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "20", Status: pipeline.StatusRunning, Project: "c/d"}},
 		},
 	}
 
@@ -169,27 +166,27 @@ func TestSelectPipeline(t *testing.T) {
 	if m.detail == nil {
 		t.Fatal("detail should be set after selectPipeline")
 	}
-	if m.selectedID != 1 {
-		t.Errorf("selectedID = %d, want 1", m.selectedID)
+	if m.selectedID != "1" {
+		t.Errorf("selectedID = %q, want \"1\"", m.selectedID)
 	}
 
 	m.cursor = 1
 	m, _ = m.selectPipeline()
-	if m.selectedID != 2 {
-		t.Errorf("selectedID = %d, want 2", m.selectedID)
+	if m.selectedID != "2" {
+		t.Errorf("selectedID = %q, want \"2\"", m.selectedID)
 	}
 }
 
 func TestDetailRender(t *testing.T) {
 	d := NewDetailModel(PipelineRow{
-		Pipeline: gitlab.Pipeline{
-			ID:     42,
-			SHA:    "abc123",
-			Ref:    "main",
-			Status: "success",
-			Source: "push",
+		Pipeline: pipeline.Pipeline{
+			ID:      "42",
+			Project: "group/project",
+			SHA:     "abc123",
+			Ref:     "main",
+			Status:  pipeline.StatusPassed,
+			Source:  "push",
 		},
-		ProjectPath: "group/project",
 	})
 
 	got := d.Render(60, 24)
