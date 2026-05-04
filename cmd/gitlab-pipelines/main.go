@@ -30,16 +30,23 @@ func main() {
 			return tui.PipelineUpdatedMsg{Pipeline: p, Err: err}
 		}
 	}
+
+	var prog *tea.Program
+	sendStatus := func(status string) {
+		prog.Send(tui.LoadingStatusMsg{Status: status})
+	}
+
 	m.Refresh = func() tea.Cmd {
 		return func() tea.Msg {
-			rows, err := loadPipelines(ctx, client)
+			rows, err := loadPipelines(ctx, client, sendStatus)
 			return tui.PipelinesLoadedMsg{Pipelines: rows, Err: err}
 		}
 	}
 	p := tea.NewProgram(m, tea.WithAltScreen())
+	prog = p
 
 	go func() {
-		rows, err := loadPipelines(ctx, client)
+		rows, err := loadPipelines(ctx, client, sendStatus)
 		p.Send(tui.PipelinesLoadedMsg{Pipelines: rows, Err: err})
 	}()
 
@@ -49,17 +56,21 @@ func main() {
 	}
 }
 
-func loadPipelines(ctx context.Context, client *glab.Client) ([]tui.PipelineRow, error) {
+func loadPipelines(ctx context.Context, client *glab.Client, status func(string)) ([]tui.PipelineRow, error) {
+	status("fetching user...")
 	user, err := client.CurrentUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	status("discovering activity...")
 	disc := discovery.New(client)
 	candidates, err := disc.Discover(ctx, user.ID, 3, 10)
 	if err != nil {
 		return nil, err
 	}
+
+	status(fmt.Sprintf("fetching pipelines (%d projects)...", len(candidates)))
 
 	type result struct {
 		rows []tui.PipelineRow

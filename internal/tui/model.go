@@ -29,6 +29,11 @@ type PipelineUpdatedMsg struct {
 	Err      error
 }
 
+// LoadingStatusMsg provides progress information during loading.
+type LoadingStatusMsg struct {
+	Status string
+}
+
 type refreshTickMsg struct{}
 type detailTickMsg struct{}
 
@@ -46,6 +51,7 @@ type Model struct {
 	cursor        int
 	offset        int
 	loading       bool
+	loadingStatus string
 	err           error
 	width         int
 	height        int
@@ -94,13 +100,12 @@ func (m Model) detailWidth() int {
 	return m.width - m.listWidth()
 }
 
-// visibleItems returns how many 2-line pipeline items fit in the viewport.
 func (m Model) visibleItems() int {
 	available := m.height - 3
-	if available < 3 {
+	if available < 4 {
 		return 1
 	}
-	return (available + 1) / 3
+	return available / 4
 }
 
 func (m Model) selectPipeline() (Model, tea.Cmd) {
@@ -167,8 +172,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
+	case LoadingStatusMsg:
+		m.loadingStatus = msg.Status
+		return m, nil
+
 	case PipelinesLoadedMsg:
 		m.loading = false
+		m.loadingStatus = ""
 		if msg.Err != nil {
 			m.err = formatError(msg.Err)
 			return m, nil
@@ -231,58 +241,58 @@ func (m Model) View() string {
 	if m.err != nil && len(m.pipelines) == 0 {
 		errMsg := errorStyle.Render(fmt.Sprintf("Error: %v", m.err))
 		hint := helpStyle.Render("r: retry • q: quit")
-		return fmt.Sprintf("\n%s\n\n%s\n", errMsg, hint)
+		content := lipgloss.JoinVertical(lipgloss.Left, errMsg, "", hint)
+		return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Center, content)
 	}
 	if m.loading && len(m.pipelines) == 0 {
-		return fmt.Sprintf("\n  %s Loading pipelines...\n", m.spinner.View())
+		status := "Loading pipelines..."
+		if m.loadingStatus != "" {
+			status = m.loadingStatus
+		}
+		content := m.spinner.View() + " " + status
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, content)
 	}
 	if len(m.pipelines) == 0 {
-		return "\n  No pipelines found.\n\n" + helpStyle.Render("r: refresh • q: quit") + "\n"
+		content := lipgloss.JoinVertical(lipgloss.Left,
+			"No pipelines found.",
+			"",
+			helpStyle.Render("r: refresh • q: quit"),
+		)
+		return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Center, content)
 	}
 
-	statusBar := m.renderStatusBar()
-
 	paneHeight := max(m.height-1, 1)
-
 	listW := m.listWidth()
 	detailW := m.detailWidth()
 
-	listPane := m.renderListPane(listW)
+	listPane := m.renderListPane(listW, paneHeight)
 	detailPane := ""
 	if m.detail != nil {
 		detailPane = m.detail.Render(detailW, paneHeight)
 	}
 
 	listBox := lipgloss.NewStyle().Width(listW).Height(paneHeight).Render(listPane)
-	detailBox := lipgloss.NewStyle().Width(detailW).Height(paneHeight).
+	detailBox := lipgloss.NewStyle().
+		Width(detailW).
+		Height(paneHeight).
 		BorderLeft(true).
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(lipgloss.Color("240")).
 		Render(detailPane)
 
 	panes := lipgloss.JoinHorizontal(lipgloss.Top, listBox, detailBox)
-	return panes + "\n" + statusBar
+	statusBar := m.renderStatusBar()
+
+	return lipgloss.JoinVertical(lipgloss.Left, panes, statusBar)
 }
 
 func (m Model) renderStatusBar() string {
-	left := ""
-	if m.loading {
-		left = dimStyle.Render("syncing...")
-	}
 	center := "↑/↓: navigate • o: open • r: refresh • q: quit"
-
-	leftWidth := lipgloss.Width(left)
-	centerWidth := lipgloss.Width(center)
-	padding := (m.width - centerWidth) / 2
-
-	leftPad := max(padding-leftWidth, 0)
-	rightPad := max(m.width-leftWidth-leftPad-centerWidth, 0)
-
-	content := left + strings.Repeat(" ", leftPad) + center + strings.Repeat(" ", rightPad)
+	content := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, center)
 	return statusBarStyle.Width(m.width).Render(content)
 }
 
-func (m Model) renderListPane(width int) string {
+func (m Model) renderListPane(width, height int) string {
 	header := listTitleStyle.Render("Pipelines")
 
 	visible := m.visibleItems()
@@ -294,48 +304,85 @@ func (m Model) renderListPane(width int) string {
 		rows = append(rows, renderPipelineItem(m.pipelines[i], width, selected))
 	}
 
-	return header + "\n\n" + strings.Join(rows, "\n\n")
+	listContent := header + "\n" + strings.Join(rows, "\n")
+
+	if m.loading {
+		status := "syncing..."
+		if m.loadingStatus != "" {
+			status = m.loadingStatus
+		}
+		toast := toastStyle.Render(m.spinner.View() + " " + status)
+		toastHeight := lipgloss.Height(toast)
+		topHeight := max(height-toastHeight, 1)
+
+		top := lipgloss.NewStyle().Width(width).Height(topHeight).Render(listContent)
+		return lipgloss.JoinVertical(lipgloss.Left, top, toast)
+	}
+
+	return listContent
 }
 
 func renderPipelineItem(p PipelineRow, width int, selected bool) string {
-	padding := 2
-	iconWidth := 4
+	innerWidth := max(width-4, 20)
+	iconWidth := 3
 	timeWidth := 12
-	midWidth := max(width-iconWidth-timeWidth-padding*2, 20)
+	midWidth := max(innerWidth-iconWidth-timeWidth, 20)
 
-	bg := lipgloss.NewStyle()
-	dim := dimStyle
+	itemStyle := itemBaseStyle.Width(width)
 	if selected {
-		bg = selectedStyle
-		dim = selectedStyle
+		itemStyle = itemSelectedStyle.Width(width)
+	}
+
+	mid1 := truncateStr(shortSHA(p.Pipeline.SHA)+" - "+p.Pipeline.Ref, midWidth)
+	mid2 := truncateStr(p.ProjectPath, midWidth)
+	timeStr := formatTime(p.Pipeline.UpdatedAt)
+
+	gap1 := max(innerWidth-iconWidth-lipgloss.Width(mid1)-lipgloss.Width(timeStr), 0)
+	gap2 := max(innerWidth-iconWidth-lipgloss.Width(mid2), 0)
+
+	if selected {
+		icon := statusIconRaw(p.Pipeline.Status)
+		pad := lipgloss.Width(icon) + 1
+		row1 := icon + " " + mid1 + strings.Repeat(" ", gap1) + timeStr
+		row2 := strings.Repeat(" ", pad) + mid2 + strings.Repeat(" ", gap2)
+		return itemStyle.Render(row1 + "\n" + row2)
 	}
 
 	icon := statusIconCompact(p.Pipeline.Status)
-	iconCol := bg.
-		Width(iconWidth).
-		Height(2).
-		Align(lipgloss.Center, lipgloss.Center).
-		Render(icon)
+	pad := lipgloss.Width(icon) + 1
+	row1 := icon + " " + mid1 + strings.Repeat(" ", gap1) + timeStr
+	row2 := strings.Repeat(" ", pad) + dimStyle.Render(mid2+strings.Repeat(" ", gap2))
 
-	line1 := shortSHA(p.Pipeline.SHA) + " - " + truncate(p.Pipeline.Ref, midWidth-11)
-	line2 := dim.Render(truncate(p.ProjectPath, midWidth))
-	midCol := bg.
-		Width(midWidth).
-		Render(line1 + "\n" + line2)
+	return itemStyle.Render(row1 + "\n" + row2)
+}
 
-	timeStr := dim.Render(formatTime(p.Pipeline.UpdatedAt))
-	timeCol := bg.
-		Width(timeWidth).
-		Height(2).
-		Align(lipgloss.Right, lipgloss.Center).
-		Render(timeStr)
-
-	row := lipgloss.JoinHorizontal(lipgloss.Top, iconCol, midCol, timeCol)
-	rowStyle := lipgloss.NewStyle().PaddingLeft(padding).PaddingRight(padding)
-	if selected {
-		rowStyle = rowStyle.Background(selectedStyle.GetBackground()).Foreground(selectedStyle.GetForeground())
+func truncateStr(s string, maxWidth int) string {
+	if lipgloss.Width(s) <= maxWidth {
+		return s
 	}
-	return rowStyle.Render(row)
+	for i := range s {
+		if lipgloss.Width(s[:i]) >= maxWidth-1 {
+			return s[:i] + "…"
+		}
+	}
+	return s
+}
+
+func statusIconRaw(status string) string {
+	switch status {
+	case "success":
+		return "✓"
+	case "failed":
+		return "✗"
+	case "running":
+		return "●"
+	case "pending":
+		return "○"
+	case "canceled", "skipped":
+		return "⊘"
+	default:
+		return "?"
+	}
 }
 
 func statusIconCompact(status string) string {
@@ -383,13 +430,6 @@ func shortSHA(sha string) string {
 	return sha
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-1] + "…"
-}
-
 func formatTime(t time.Time) string {
 	if t.IsZero() {
 		return ""
@@ -431,6 +471,23 @@ func formatError(err error) error {
 
 var (
 	listTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2).MarginTop(1)
+	itemBaseStyle = lipgloss.NewStyle().
+			PaddingLeft(2).
+			PaddingRight(2).
+			PaddingTop(1).
+			PaddingBottom(1)
+	itemSelectedStyle = lipgloss.NewStyle().
+				PaddingLeft(2).
+				PaddingRight(2).
+				PaddingTop(1).
+				PaddingBottom(1).
+				Background(lipgloss.Color("238")).
+				Foreground(lipgloss.Color("229"))
+	toastStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("252")).
+			Background(lipgloss.Color("237")).
+			PaddingLeft(1).
+			PaddingRight(1)
 	statusBarStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("229")).
 			Background(lipgloss.Color("236")).
@@ -445,7 +502,4 @@ var (
 	pendingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	canceledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	skippedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	selectedStyle = lipgloss.NewStyle().
-			Background(lipgloss.Color("238")).
-			Foreground(lipgloss.Color("229"))
 )

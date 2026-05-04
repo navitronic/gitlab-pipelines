@@ -27,26 +27,6 @@ func TestShortSHA(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
-	tests := []struct {
-		input string
-		max   int
-		want  string
-	}{
-		{"hello", 10, "hello"},
-		{"hello", 5, "hello"},
-		{"hello world", 5, "hell…"},
-		{"ab", 2, "ab"},
-		{"abc", 2, "a…"},
-		{"", 5, ""},
-	}
-	for _, tt := range tests {
-		if got := truncate(tt.input, tt.max); got != tt.want {
-			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.max, got, tt.want)
-		}
-	}
-}
-
 func TestFormatDuration(t *testing.T) {
 	tests := []struct {
 		seconds float64
@@ -119,9 +99,10 @@ func TestVisibleItems(t *testing.T) {
 		{5, 1},
 		{6, 1},
 		{7, 1},
-		{8, 2},
-		{24, 7},
-		{40, 12},
+		{8, 1},
+		{11, 2},
+		{24, 5},
+		{40, 9},
 	}
 	for _, tt := range tests {
 		m := Model{height: tt.height}
