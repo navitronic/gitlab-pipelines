@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -40,7 +41,9 @@ func main() {
 	m.Refresh = func() tea.Cmd {
 		return func() tea.Msg {
 			pipelines, err := svc.ListPipelines(ctx, sendStatus)
-			if err == nil && len(pipelines) > 0 {
+			if err != nil && isFatalErr(err) {
+				cache.Clear()
+			} else if len(pipelines) > 0 {
 				cache.Save(pipelines)
 			}
 			return tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err}
@@ -54,10 +57,12 @@ func main() {
 			p.Send(tui.PipelinesLoadedMsg{Pipelines: toRows(cached)})
 		}
 		pipelines, err := svc.ListPipelines(ctx, sendStatus)
-		p.Send(tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err})
-		if err == nil && len(pipelines) > 0 {
+		if err != nil && isFatalErr(err) {
+			cache.Clear()
+		} else if len(pipelines) > 0 {
 			cache.Save(pipelines)
 		}
+		p.Send(tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err})
 	}()
 
 	if _, err := p.Run(); err != nil {
@@ -72,4 +77,8 @@ func toRows(pipelines []pipeline.Pipeline) []tui.PipelineRow {
 		rows[i] = tui.PipelineRow{Pipeline: p}
 	}
 	return rows
+}
+
+func isFatalErr(err error) bool {
+	return errors.Is(err, pipeline.ErrAuthRequired) || errors.Is(err, pipeline.ErrClientNotFound)
 }

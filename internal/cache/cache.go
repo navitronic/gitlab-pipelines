@@ -60,6 +60,15 @@ func Load() ([]pipeline.Pipeline, error) {
 	return e.Pipelines, nil
 }
 
+// Clear removes the cache file.
+func Clear() {
+	p, err := filePath()
+	if err != nil {
+		return
+	}
+	os.Remove(p)
+}
+
 // Save writes pipelines to the cache file atomically.
 func Save(pipelines []pipeline.Pipeline) error {
 	d, err := dir()
