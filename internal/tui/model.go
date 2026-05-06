@@ -178,6 +178,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loadingStatus = ""
 		if msg.Err != nil {
 			m.err = formatError(msg.Err)
+			if isFatalError(msg.Err) {
+				m.pipelines = nil
+				m.cursor = 0
+				m.offset = 0
+				m.detail = nil
+				m.selectedID = ""
+			}
 			return m, nil
 		}
 		m.err = nil
@@ -464,4 +471,8 @@ func formatError(err error) error {
 		return fmt.Errorf("glab not authenticated. Run: glab auth login")
 	}
 	return err
+}
+
+func isFatalError(err error) bool {
+	return errors.Is(err, pipeline.ErrAuthRequired) || errors.Is(err, pipeline.ErrClientNotFound)
 }
