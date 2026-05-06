@@ -128,6 +128,18 @@ func (s *Service) ListJobs(ctx context.Context, project string, pipelineID strin
 	return out, nil
 }
 
+func (s *Service) GetMergeRequestURL(ctx context.Context, project string, ref string) (string, error) {
+	projectID, err := strconv.Atoi(project)
+	if err != nil {
+		return "", fmt.Errorf("invalid project ID: %w", err)
+	}
+	mr, err := s.client.FetchMergeRequestByBranch(ctx, projectID, ref)
+	if err != nil {
+		return "", wrapErr(err)
+	}
+	return mr.WebURL, nil
+}
+
 func convertPipeline(p gitlab.Pipeline, projectID int, project string) pipeline.Pipeline {
 	return pipeline.Pipeline{
 		ID:        strconv.Itoa(p.ID),

@@ -75,6 +75,22 @@ func (c *Client) FetchPipelineJobs(ctx context.Context, projectID int, pipelineI
 	return allJobs, nil
 }
 
+func (c *Client) FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error) {
+	endpoint := fmt.Sprintf("projects/%d/merge_requests?source_branch=%s&state=all&order_by=updated_at&sort=desc&per_page=1", projectID, url.QueryEscape(branch))
+	out, err := c.Run(ctx, "api", endpoint)
+	if err != nil {
+		return gitlab.MergeRequest{}, fmt.Errorf("fetching merge requests: %w", err)
+	}
+	var mrs []gitlab.MergeRequest
+	if err := json.Unmarshal(out, &mrs); err != nil {
+		return gitlab.MergeRequest{}, fmt.Errorf("parsing merge request response: %w", err)
+	}
+	if len(mrs) == 0 {
+		return gitlab.MergeRequest{}, nil
+	}
+	return mrs[0], nil
+}
+
 func (c *Client) fetchPipelinesPaginated(ctx context.Context, baseEndpoint string) ([]gitlab.Pipeline, error) {
 	const perPage = 100
 	var all []gitlab.Pipeline

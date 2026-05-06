@@ -71,4 +71,5 @@ type Service interface {
 	ListPipelines(ctx context.Context, progress func(string)) ([]Pipeline, error)
 	GetPipeline(ctx context.Context, projectID string, id string) (Pipeline, error)
 	ListJobs(ctx context.Context, projectID string, pipelineID string) ([]Job, error)
+	GetMergeRequestURL(ctx context.Context, projectID string, ref string) (string, error)
 }

@@ -56,6 +56,7 @@ type Model struct {
 	selectedID    string
 	FetchJobs     func(projectID, pipelineID string) tea.Cmd
 	FetchPipeline func(projectID, pipelineID string) tea.Cmd
+	FetchMR       func(projectID, ref string) tea.Cmd
 	Refresh       func() tea.Cmd
 }
 
@@ -123,6 +124,9 @@ func (m Model) selectPipeline() (Model, tea.Cmd) {
 	}
 	if m.FetchPipeline != nil {
 		cmds = append(cmds, m.FetchPipeline(row.Pipeline.ProjectID, row.Pipeline.ID))
+	}
+	if m.FetchMR != nil {
+		cmds = append(cmds, m.FetchMR(row.Pipeline.ProjectID, row.Pipeline.Ref))
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -206,6 +210,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case PipelineUpdatedMsg:
 		if m.detail != nil && msg.Err == nil {
 			m.detail.row.Pipeline = msg.Pipeline
+		}
+
+	case MRLoadedMsg:
+		if m.detail != nil && msg.Err == nil {
+			m.detail.SetMRURL(msg.URL)
 		}
 
 	case refreshTickMsg:
