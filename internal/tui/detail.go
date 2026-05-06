@@ -9,6 +9,17 @@ import (
 	"github.com/navitronic/gitlab-builds/internal/pipeline"
 )
 
+func commitURL(p pipeline.Pipeline) string {
+	if p.WebURL == "" || p.SHA == "" {
+		return ""
+	}
+	idx := strings.Index(p.WebURL, "/-/pipelines/")
+	if idx < 0 {
+		return ""
+	}
+	return p.WebURL[:idx] + "/-/commit/" + p.SHA
+}
+
 type JobsLoadedMsg struct {
 	Jobs []pipeline.Job
 	Err  error
@@ -49,6 +60,9 @@ func (d *DetailModel) Render(width, height int) string {
 	b.WriteString(fmt.Sprintf("  Status:   %s\n", statusIcon(p.Status)))
 	b.WriteString(fmt.Sprintf("  Ref:      %s\n", p.Ref))
 	b.WriteString(fmt.Sprintf("  SHA:      %s\n", p.SHA))
+	if url := commitURL(p); url != "" {
+		b.WriteString(fmt.Sprintf("  Commit:   %s\n", url))
+	}
 	b.WriteString(fmt.Sprintf("  Source:   %s\n", p.Source))
 	b.WriteString(fmt.Sprintf("  Updated:  %s\n", formatTime(p.UpdatedAt)))
 	b.WriteString(fmt.Sprintf("  Duration: %s\n", pipelineDuration(p)))
