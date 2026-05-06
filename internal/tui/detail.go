@@ -9,15 +9,9 @@ import (
 	"github.com/navitronic/gitlab-builds/internal/pipeline"
 )
 
-func commitURL(p pipeline.Pipeline) string {
-	if p.WebURL == "" || p.SHA == "" {
-		return ""
-	}
-	idx := strings.Index(p.WebURL, "/-/pipelines/")
-	if idx < 0 {
-		return ""
-	}
-	return p.WebURL[:idx] + "/-/commit/" + p.SHA
+type MRLoadedMsg struct {
+	URL string
+	Err error
 }
 
 type JobsLoadedMsg struct {
@@ -32,6 +26,7 @@ type DetailModel struct {
 	jobs        []pipeline.Job
 	jobsLoading bool
 	jobsErr     error
+	mrURL       string
 	frame       int
 }
 
@@ -44,6 +39,10 @@ func (d *DetailModel) SetJobs(jobs []pipeline.Job, err error) {
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].ID < jobs[j].ID })
 	d.jobs = jobs
 	d.jobsErr = err
+}
+
+func (d *DetailModel) SetMRURL(url string) {
+	d.mrURL = url
 }
 
 func (d *DetailModel) Tick() {
@@ -60,8 +59,8 @@ func (d *DetailModel) Render(width, height int) string {
 	b.WriteString(fmt.Sprintf("  Status:   %s\n", statusIcon(p.Status)))
 	b.WriteString(fmt.Sprintf("  Ref:      %s\n", p.Ref))
 	b.WriteString(fmt.Sprintf("  SHA:      %s\n", p.SHA))
-	if url := commitURL(p); url != "" {
-		b.WriteString(fmt.Sprintf("  Commit:   %s\n", url))
+	if d.mrURL != "" {
+		b.WriteString(fmt.Sprintf("  MR:       %s\n", d.mrURL))
 	}
 	b.WriteString(fmt.Sprintf("  Source:   %s\n", p.Source))
 	b.WriteString(fmt.Sprintf("  Updated:  %s\n", formatTime(p.UpdatedAt)))

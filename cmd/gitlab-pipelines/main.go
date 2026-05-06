@@ -32,6 +32,12 @@ func main() {
 			return tui.PipelineUpdatedMsg{Pipeline: p, Err: err}
 		}
 	}
+	m.FetchMR = func(projectID, ref string) tea.Cmd {
+		return func() tea.Msg {
+			url, err := svc.GetMergeRequestURL(ctx, projectID, ref)
+			return tui.MRLoadedMsg{URL: url, Err: err}
+		}
+	}
 
 	var prog *tea.Program
 	sendStatus := func(status string) {
