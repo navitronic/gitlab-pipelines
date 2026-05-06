@@ -209,6 +209,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case PipelineUpdatedMsg:
 		if m.detail != nil && msg.Err == nil {
+			if msg.Pipeline.Project == "" {
+				msg.Pipeline.Project = m.detail.row.Pipeline.Project
+			}
 			m.detail.row.Pipeline = msg.Pipeline
 		}
 
