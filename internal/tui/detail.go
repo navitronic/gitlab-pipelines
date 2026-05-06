@@ -10,8 +10,9 @@ import (
 )
 
 type MRLoadedMsg struct {
-	URL string
-	Err error
+	PipelineID string
+	URL        string
+	Err        error
 }
 
 type JobsLoadedMsg struct {
