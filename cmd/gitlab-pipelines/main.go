@@ -6,6 +6,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/navitronic/gitlab-builds/internal/cache"
 	"github.com/navitronic/gitlab-builds/internal/glab"
 	"github.com/navitronic/gitlab-builds/internal/pipeline"
 	"github.com/navitronic/gitlab-builds/internal/pipeline/gitlabsvc"
@@ -39,6 +40,9 @@ func main() {
 	m.Refresh = func() tea.Cmd {
 		return func() tea.Msg {
 			pipelines, err := svc.ListPipelines(ctx, sendStatus)
+			if err == nil && len(pipelines) > 0 {
+				cache.Save(pipelines)
+			}
 			return tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err}
 		}
 	}
@@ -46,8 +50,14 @@ func main() {
 	prog = p
 
 	go func() {
+		if cached, err := cache.Load(); err == nil && len(cached) > 0 {
+			p.Send(tui.PipelinesLoadedMsg{Pipelines: toRows(cached)})
+		}
 		pipelines, err := svc.ListPipelines(ctx, sendStatus)
 		p.Send(tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err})
+		if err == nil && len(pipelines) > 0 {
+			cache.Save(pipelines)
+		}
 	}()
 
 	if _, err := p.Run(); err != nil {
