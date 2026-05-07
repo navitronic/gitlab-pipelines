@@ -7,13 +7,14 @@ import (
 	"github.com/navitronic/gitlab-builds/internal/gitlab"
 )
 
-func TestExtractCandidates_PushEvents(t *testing.T) {
+func TestExtractActiveRepos_AllEventTypes(t *testing.T) {
+	now := time.Now()
 	events := []gitlab.Event{
 		{
 			ID:         1,
 			ActionName: "pushed to",
 			ProjectID:  42,
-			CreatedAt:  time.Now(),
+			CreatedAt:  now,
 			PushData: &gitlab.PushData{
 				CommitCount: 1,
 				Ref:         "main",
@@ -25,55 +26,83 @@ func TestExtractCandidates_PushEvents(t *testing.T) {
 			ID:         2,
 			ActionName: "commented on",
 			ProjectID:  42,
-			CreatedAt:  time.Now(),
+			CreatedAt:  now.Add(-time.Minute),
 		},
-	}
-
-	candidates := ExtractCandidates(events)
-	if len(candidates) != 1 {
-		t.Fatalf("expected 1 candidate, got %d", len(candidates))
-	}
-	if candidates[0].SHA != "abc123" {
-		t.Errorf("expected SHA abc123, got %q", candidates[0].SHA)
-	}
-	if candidates[0].Ref != "main" {
-		t.Errorf("expected ref main, got %q", candidates[0].Ref)
-	}
-}
-
-func TestExtractCandidates_SkipsEmptyCommitTo(t *testing.T) {
-	events := []gitlab.Event{
 		{
-			ID:         1,
+			ID:         3,
 			ActionName: "pushed to",
-			ProjectID:  42,
-			CreatedAt:  time.Now(),
+			ProjectID:  99,
+			CreatedAt:  now.Add(-2 * time.Minute),
 			PushData: &gitlab.PushData{
-				CommitCount: 0,
+				CommitCount: 1,
 				Ref:         "feature",
 				RefType:     "branch",
-				CommitTo:    "",
+				CommitTo:    "def456",
 			},
 		},
 	}
 
-	candidates := ExtractCandidates(events)
-	if len(candidates) != 0 {
-		t.Fatalf("expected 0 candidates for empty CommitTo, got %d", len(candidates))
+	repos := ExtractActiveRepos(events)
+	if len(repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d", len(repos))
+	}
+	if repos[0].ProjectID != 42 {
+		t.Errorf("expected first repo to be project 42, got %d", repos[0].ProjectID)
+	}
+	if repos[1].ProjectID != 99 {
+		t.Errorf("expected second repo to be project 99, got %d", repos[1].ProjectID)
 	}
 }
 
-func TestDeduplicate(t *testing.T) {
-	now := time.Now()
-	candidates := []gitlab.PipelineCandidate{
-		{ProjectID: 1, Ref: "main", SHA: "aaa", Reason: "pushed to", EventTime: now},
-		{ProjectID: 1, Ref: "main", SHA: "aaa", Reason: "pushed to", EventTime: now.Add(-time.Hour)},
-		{ProjectID: 1, Ref: "dev", SHA: "bbb", Reason: "pushed to", EventTime: now},
-		{ProjectID: 2, Ref: "main", SHA: "aaa", Reason: "pushed to", EventTime: now},
+func TestExtractActiveRepos_SkipsZeroProjectID(t *testing.T) {
+	events := []gitlab.Event{
+		{ID: 1, ActionName: "joined", ProjectID: 0, CreatedAt: time.Now()},
+		{ID: 2, ActionName: "pushed to", ProjectID: 10, CreatedAt: time.Now()},
 	}
 
-	result := Deduplicate(candidates)
-	if len(result) != 3 {
-		t.Fatalf("expected 3 unique candidates, got %d", len(result))
+	repos := ExtractActiveRepos(events)
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(repos))
+	}
+	if repos[0].ProjectID != 10 {
+		t.Errorf("expected project 10, got %d", repos[0].ProjectID)
+	}
+}
+
+func TestExtractActiveRepos_TracksLatestActivity(t *testing.T) {
+	now := time.Now()
+	earlier := now.Add(-time.Hour)
+	events := []gitlab.Event{
+		{ID: 1, ActionName: "commented on", ProjectID: 5, CreatedAt: earlier},
+		{ID: 2, ActionName: "pushed to", ProjectID: 5, CreatedAt: now},
+	}
+
+	repos := ExtractActiveRepos(events)
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(repos))
+	}
+	if !repos[0].LastActive.Equal(now) {
+		t.Errorf("expected LastActive=%v, got %v", now, repos[0].LastActive)
+	}
+}
+
+func TestExtractActiveRepos_PreservesOrder(t *testing.T) {
+	now := time.Now()
+	events := []gitlab.Event{
+		{ID: 1, ProjectID: 10, CreatedAt: now},
+		{ID: 2, ProjectID: 20, CreatedAt: now},
+		{ID: 3, ProjectID: 30, CreatedAt: now},
+		{ID: 4, ProjectID: 10, CreatedAt: now},
+	}
+
+	repos := ExtractActiveRepos(events)
+	if len(repos) != 3 {
+		t.Fatalf("expected 3 repos, got %d", len(repos))
+	}
+	expected := []int{10, 20, 30}
+	for i, want := range expected {
+		if repos[i].ProjectID != want {
+			t.Errorf("repos[%d].ProjectID = %d, want %d", i, repos[i].ProjectID, want)
+		}
 	}
 }

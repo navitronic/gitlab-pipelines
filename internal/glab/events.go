@@ -5,20 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/navitronic/gitlab-builds/internal/gitlab"
 )
 
-// FetchUserEvents retrieves user events with pagination.
-// Returns all events across pages up to maxPages (0 = single page).
-func (c *Client) FetchUserEvents(ctx context.Context, userID int, maxPages int) ([]gitlab.Event, error) {
-	if maxPages <= 0 {
-		maxPages = 1
-	}
+// FetchUserEventsSince retrieves user events after the given date.
+// The GitLab API accepts date-level granularity (YYYY-MM-DD) for the "after" parameter.
+func (c *Client) FetchUserEventsSince(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error) {
+	afterDate := after.Format("2006-01-02")
 
 	var allEvents []gitlab.Event
-	for page := 1; page <= maxPages; page++ {
-		endpoint := fmt.Sprintf("users/%d/events?per_page=100&page=%d", userID, page)
+	for page := 1; ; page++ {
+		endpoint := fmt.Sprintf("users/%d/events?per_page=100&after=%s&page=%d", userID, afterDate, page)
 		out, err := c.Run(ctx, "api", endpoint)
 		if err != nil {
 			return nil, fmt.Errorf("fetching user events (page %d): %w", page, err)
@@ -33,6 +32,9 @@ func (c *Client) FetchUserEvents(ctx context.Context, userID int, maxPages int) 
 			break
 		}
 		allEvents = append(allEvents, events...)
+		if len(events) < 100 {
+			break
+		}
 	}
 	return allEvents, nil
 }

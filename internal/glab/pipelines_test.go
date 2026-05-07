@@ -9,24 +9,6 @@ import (
 	"testing"
 )
 
-func TestFetchPipelinesBySHA(t *testing.T) {
-	dir := t.TempDir()
-	response := `[{"id":1,"iid":10,"project_id":42,"sha":"abc123","ref":"main","status":"success","source":"push"}]`
-	script := fakeGlabScript(t, dir, response)
-
-	c := &Client{BinaryPath: script}
-	pipelines, err := c.FetchPipelinesBySHA(context.Background(), 42, 1, "abc123")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pipelines) != 1 {
-		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
-	}
-	if pipelines[0].SHA != "abc123" {
-		t.Errorf("expected SHA abc123, got %q", pipelines[0].SHA)
-	}
-}
-
 func TestFetchPipelineJobs(t *testing.T) {
 	dir := t.TempDir()
 	response := `[{"id":100,"name":"build","stage":"build","status":"success"}]`
@@ -50,7 +32,7 @@ func TestFetchPipelines_ParseError(t *testing.T) {
 	script := fakeGlabScript(t, dir, "not json")
 
 	c := &Client{BinaryPath: script}
-	_, err := c.FetchPipelinesBySHA(context.Background(), 42, 1, "abc123")
+	_, err := c.FetchPipelinesByUser(context.Background(), 42, 1)
 	if err == nil {
 		t.Fatal("expected parse error")
 	}

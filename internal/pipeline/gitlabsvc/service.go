@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/navitronic/gitlab-builds/internal/activity"
 	"github.com/navitronic/gitlab-builds/internal/discovery"
 	"github.com/navitronic/gitlab-builds/internal/gitlab"
 	"github.com/navitronic/gitlab-builds/internal/glab"
@@ -29,53 +30,55 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 		return nil, wrapErr(err)
 	}
 
-	progress("discovering activity...")
+	store, err := activity.Load()
+	if err != nil {
+		store = &activity.Store{}
+	}
+
+	progress("fetching activity...")
+	since := store.SinceTime()
 	disc := discovery.New(s.client)
-	candidates, err := disc.Discover(ctx, user.ID, 3, 10)
+	events, repos, err := disc.DiscoverSince(ctx, user.ID, since)
 	if err != nil {
 		return nil, wrapErr(err)
 	}
 
-	progress(fmt.Sprintf("fetching pipelines (%d projects)...", len(candidates)))
+	store.Merge(events)
+	_ = store.Save()
+
+	// Re-derive repos from the full cached window (not just this fetch).
+	repos = discovery.ExtractActiveRepos(store.Events)
+
+	if len(repos) == 0 {
+		return nil, nil
+	}
+
+	progress(fmt.Sprintf("fetching pipelines (%d projects)...", len(repos)))
 
 	type result struct {
 		pipelines []pipeline.Pipeline
 		err       error
 	}
-	ch := make(chan result, len(candidates))
+	ch := make(chan result, len(repos))
 
-	for _, c := range candidates {
-		go func(c gitlab.PipelineCandidate) {
-			pipelines, err := s.client.FetchPipelinesBySHA(ctx, c.ProjectID, user.ID, c.SHA)
+	for _, r := range repos {
+		go func(r discovery.ActiveRepo) {
+			pipelines, err := s.client.FetchPipelinesByUser(ctx, r.ProjectID, user.ID)
 			if err != nil {
 				ch <- result{err: wrapErr(err)}
 				return
 			}
-			if len(pipelines) == 0 {
-				pipelines, err = s.client.FetchPipelinesByRef(ctx, c.ProjectID, user.ID, c.Ref)
-				if err != nil {
-					ch <- result{err: wrapErr(err)}
-					return
-				}
-			}
-			if len(pipelines) == 0 {
-				pipelines, err = s.client.FetchPipelinesFallback(ctx, c.ProjectID, user.ID)
-				if err != nil {
-					ch <- result{err: wrapErr(err)}
-					return
-				}
-			}
 			var out []pipeline.Pipeline
 			for _, p := range pipelines {
-				out = append(out, convertPipeline(p, c.ProjectID, c.ProjectPath))
+				out = append(out, convertPipeline(p, r.ProjectID, r.ProjectPath))
 			}
 			ch <- result{pipelines: out}
-		}(c)
+		}(r)
 	}
 
 	var all []pipeline.Pipeline
 	var lastErr error
-	for range candidates {
+	for range repos {
 		r := <-ch
 		if r.err != nil {
 			lastErr = r.err
