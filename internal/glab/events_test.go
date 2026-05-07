@@ -3,15 +3,16 @@ package glab
 import (
 	"context"
 	"testing"
+	"time"
 )
 
-func TestFetchUserEvents(t *testing.T) {
+func TestFetchUserEventsSince(t *testing.T) {
 	dir := t.TempDir()
 	response := `[{"id":1,"action_name":"pushed to","project_id":42,"push_data":{"commit_count":1,"ref":"main","ref_type":"branch","commit_to":"abc123"}}]`
 	script := fakeGlabScript(t, dir, response)
 
 	c := &Client{BinaryPath: script}
-	events, err := c.FetchUserEvents(context.Background(), 1, 1)
+	events, err := c.FetchUserEventsSince(context.Background(), 1, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -29,32 +30,17 @@ func TestFetchUserEvents(t *testing.T) {
 	}
 }
 
-func TestFetchUserEvents_EmptyPage(t *testing.T) {
+func TestFetchUserEventsSince_Empty(t *testing.T) {
 	dir := t.TempDir()
 	script := fakeGlabScript(t, dir, "[]")
 
 	c := &Client{BinaryPath: script}
-	events, err := c.FetchUserEvents(context.Background(), 1, 3)
+	events, err := c.FetchUserEventsSince(context.Background(), 1, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(events) != 0 {
 		t.Fatalf("expected 0 events, got %d", len(events))
-	}
-}
-
-func TestFetchUserEvents_MaxPagesZero(t *testing.T) {
-	dir := t.TempDir()
-	response := `[{"id":1,"action_name":"pushed to","project_id":42}]`
-	script := fakeGlabScript(t, dir, response)
-
-	c := &Client{BinaryPath: script}
-	events, err := c.FetchUserEvents(context.Background(), 1, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event with maxPages=0, got %d", len(events))
 	}
 }
 
@@ -84,50 +70,18 @@ func TestFetchProject_ParseError(t *testing.T) {
 	}
 }
 
-func TestFetchPipelinesByRef(t *testing.T) {
-	dir := t.TempDir()
-	response := `[{"id":5,"ref":"feature/test","status":"running"}]`
-	script := fakeGlabScript(t, dir, response)
-
-	c := &Client{BinaryPath: script}
-	pipelines, err := c.FetchPipelinesByRef(context.Background(), 42, 1, "feature/test")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pipelines) != 1 {
-		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
-	}
-	if pipelines[0].Ref != "feature/test" {
-		t.Errorf("expected ref feature/test, got %q", pipelines[0].Ref)
-	}
-}
-
-func TestFetchPipelinesFallback(t *testing.T) {
+func TestFetchPipelinesByUser(t *testing.T) {
 	dir := t.TempDir()
 	response := `[{"id":10,"status":"success"},{"id":9,"status":"failed"}]`
 	script := fakeGlabScript(t, dir, response)
 
 	c := &Client{BinaryPath: script}
-	pipelines, err := c.FetchPipelinesFallback(context.Background(), 42, 1)
+	pipelines, err := c.FetchPipelinesByUser(context.Background(), 42, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(pipelines) != 2 {
 		t.Fatalf("expected 2 pipelines, got %d", len(pipelines))
-	}
-}
-
-func TestFetchPipelinesBySHA_EmptyResponse(t *testing.T) {
-	dir := t.TempDir()
-	script := fakeGlabScript(t, dir, "[]")
-
-	c := &Client{BinaryPath: script}
-	pipelines, err := c.FetchPipelinesBySHA(context.Background(), 42, 1, "abc123")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(pipelines) != 0 {
-		t.Fatalf("expected 0 pipelines, got %d", len(pipelines))
 	}
 }
 

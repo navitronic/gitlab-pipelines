@@ -10,27 +10,10 @@ import (
 	"github.com/navitronic/gitlab-builds/internal/gitlab"
 )
 
-// FetchPipelinesBySHA fetches pipelines for a project matching a specific commit SHA.
-func (c *Client) FetchPipelinesBySHA(ctx context.Context, projectID int, userID int, sha string) ([]gitlab.Pipeline, error) {
-	endpoint := fmt.Sprintf("projects/%d/pipelines?sha=%s&per_page=100", projectID, url.QueryEscape(sha))
-	if userID > 0 {
-		endpoint += "&user_id=" + strconv.Itoa(userID)
-	}
-	return c.fetchPipelinesPaginated(ctx, endpoint)
-}
-
-// FetchPipelinesByRef fetches pipelines for a project matching a specific ref.
-func (c *Client) FetchPipelinesByRef(ctx context.Context, projectID int, userID int, ref string) ([]gitlab.Pipeline, error) {
-	endpoint := fmt.Sprintf("projects/%d/pipelines?ref=%s&per_page=100", projectID, url.QueryEscape(ref))
-	if userID > 0 {
-		endpoint += "&user_id=" + strconv.Itoa(userID)
-	}
-	return c.fetchPipelinesPaginated(ctx, endpoint)
-}
-
-// FetchPipelinesFallback fetches recent pipelines for a project ordered by update time.
-func (c *Client) FetchPipelinesFallback(ctx context.Context, projectID int, userID int) ([]gitlab.Pipeline, error) {
-	endpoint := fmt.Sprintf("projects/%d/pipelines?order_by=updated_at&sort=desc&per_page=100", projectID)
+// FetchPipelinesByUser fetches recent pipelines for a project belonging to a user,
+// ordered by most recently updated.
+func (c *Client) FetchPipelinesByUser(ctx context.Context, projectID int, userID int) ([]gitlab.Pipeline, error) {
+	endpoint := fmt.Sprintf("projects/%d/pipelines?order_by=updated_at&sort=desc&per_page=20", projectID)
 	if userID > 0 {
 		endpoint += "&user_id=" + strconv.Itoa(userID)
 	}

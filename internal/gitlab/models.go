@@ -10,16 +10,6 @@ type User struct {
 	Email    string `json:"email"`
 }
 
-// PipelineCandidate represents a discovered pipeline candidate from user events.
-type PipelineCandidate struct {
-	ProjectID   int
-	ProjectPath string
-	Ref         string
-	SHA         string
-	Reason      string
-	EventTime   time.Time
-}
-
 // Pipeline represents a GitLab CI pipeline.
 type Pipeline struct {
 	ID             int       `json:"id"`

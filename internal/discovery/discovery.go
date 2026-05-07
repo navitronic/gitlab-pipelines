@@ -3,94 +3,76 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/navitronic/gitlab-builds/internal/gitlab"
 	"github.com/navitronic/gitlab-builds/internal/glab"
 )
 
-// Discoverer finds pipeline candidates from user activity.
+// Discoverer finds active repositories from user activity.
 type Discoverer struct {
 	client *glab.Client
 }
 
-// New creates a Discoverer with the given glab client.
 func New(client *glab.Client) *Discoverer {
 	return &Discoverer{client: client}
 }
 
-// Discover fetches user events and extracts deduplicated pipeline candidates.
-// Results are capped at maxCandidates (0 = no limit).
-func (d *Discoverer) Discover(ctx context.Context, userID int, maxPages int, maxCandidates int) ([]gitlab.PipelineCandidate, error) {
-	events, err := d.client.FetchUserEvents(ctx, userID, maxPages)
+// ActiveRepo represents a project the user has been active in recently.
+type ActiveRepo struct {
+	ProjectID   int
+	ProjectPath string
+	LastActive  time.Time
+}
+
+// DiscoverSince fetches user events after the given time and returns active repositories.
+func (d *Discoverer) DiscoverSince(ctx context.Context, userID int, since time.Time) ([]gitlab.Event, []ActiveRepo, error) {
+	events, err := d.client.FetchUserEventsSince(ctx, userID, since)
 	if err != nil {
-		return nil, fmt.Errorf("discovering pipelines: %w", err)
+		return nil, nil, fmt.Errorf("discovering activity: %w", err)
 	}
 
-	candidates := ExtractCandidates(events)
-	deduped := Deduplicate(candidates)
+	repos := ExtractActiveRepos(events)
 
-	if maxCandidates > 0 && len(deduped) > maxCandidates {
-		deduped = deduped[:maxCandidates]
+	for i, r := range repos {
+		project, err := d.client.FetchProject(ctx, r.ProjectID)
+		if err == nil {
+			repos[i].ProjectPath = project.PathWithNamespace
+		}
 	}
 
-	projectPaths := make(map[int]string)
-	for i, c := range deduped {
-		if _, ok := projectPaths[c.ProjectID]; !ok {
-			project, err := d.client.FetchProject(ctx, c.ProjectID)
-			if err == nil {
-				projectPaths[c.ProjectID] = project.PathWithNamespace
+	return events, repos, nil
+}
+
+// ExtractActiveRepos extracts unique active repositories from events.
+// Any event with a project_id marks that project as active.
+func ExtractActiveRepos(events []gitlab.Event) []ActiveRepo {
+	type repoState struct {
+		lastActive time.Time
+	}
+	seen := make(map[int]*repoState)
+	var order []int
+
+	for _, e := range events {
+		if e.ProjectID == 0 {
+			continue
+		}
+		if s, ok := seen[e.ProjectID]; ok {
+			if e.CreatedAt.After(s.lastActive) {
+				s.lastActive = e.CreatedAt
 			}
+		} else {
+			seen[e.ProjectID] = &repoState{lastActive: e.CreatedAt}
+			order = append(order, e.ProjectID)
 		}
-		deduped[i].ProjectPath = projectPaths[c.ProjectID]
 	}
 
-	return deduped, nil
-}
-
-// ExtractCandidates converts events into pipeline candidates.
-func ExtractCandidates(events []gitlab.Event) []gitlab.PipelineCandidate {
-	var candidates []gitlab.PipelineCandidate
-
-	for _, event := range events {
-		if event.PushData == nil {
-			continue
-		}
-		if event.PushData.CommitTo == "" {
-			continue
-		}
-
-		candidate := gitlab.PipelineCandidate{
-			ProjectID: event.ProjectID,
-			Ref:       event.PushData.Ref,
-			SHA:       event.PushData.CommitTo,
-			Reason:    event.ActionName,
-			EventTime: event.CreatedAt,
-		}
-		candidates = append(candidates, candidate)
+	repos := make([]ActiveRepo, 0, len(order))
+	for _, id := range order {
+		repos = append(repos, ActiveRepo{
+			ProjectID:  id,
+			LastActive: seen[id].lastActive,
+		})
 	}
-
-	return candidates
-}
-
-// Deduplicate removes duplicate candidates by project_id + ref + sha.
-func Deduplicate(candidates []gitlab.PipelineCandidate) []gitlab.PipelineCandidate {
-	type key struct {
-		projectID int
-		ref       string
-		sha       string
-	}
-
-	seen := make(map[key]bool)
-	var result []gitlab.PipelineCandidate
-
-	for _, c := range candidates {
-		k := key{projectID: c.ProjectID, ref: c.Ref, sha: c.SHA}
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
-		result = append(result, c)
-	}
-
-	return result
+	return repos
 }
