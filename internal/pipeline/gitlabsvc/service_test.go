@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -199,6 +200,7 @@ func TestListPipelines_CurrentUserError(t *testing.T) {
 func TestListPipelines_EventsError(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	mc := &mockClient{
 		currentUser: func(_ context.Context) (*gitlab.User, error) {
@@ -218,6 +220,7 @@ func TestListPipelines_EventsError(t *testing.T) {
 func TestListPipelines_NoRepos(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	mc := &mockClient{
 		currentUser: func(_ context.Context) (*gitlab.User, error) {
@@ -240,6 +243,7 @@ func TestListPipelines_NoRepos(t *testing.T) {
 func TestListPipelines_Success(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	now := time.Now()
 	mc := &mockClient{
@@ -278,6 +282,7 @@ func TestListPipelines_Success(t *testing.T) {
 func TestListPipelines_PipelineFetchError(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	now := time.Now()
 	mc := &mockClient{
@@ -306,6 +311,7 @@ func TestListPipelines_PipelineFetchError(t *testing.T) {
 func TestListPipelines_ProjectPathFromCache(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	now := time.Now()
 	fetchProjectCalls := 0
@@ -342,6 +348,7 @@ func TestListPipelines_ProjectPathFromCache(t *testing.T) {
 func TestListPipelines_FetchProjectError(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	now := time.Now()
 	mc := &mockClient{

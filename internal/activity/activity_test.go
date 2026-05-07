@@ -126,9 +126,8 @@ func TestLoadSaveRoundtrip(t *testing.T) {
 
 func TestLoadMissingFile(t *testing.T) {
 	tmp := t.TempDir()
-	orig := os.Getenv("HOME")
-	os.Setenv("HOME", tmp)
-	defer os.Setenv("HOME", orig)
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	s, err := Load()
 	if err != nil {
@@ -144,13 +143,13 @@ func TestLoadMissingFile(t *testing.T) {
 
 func TestLoadCorruptedFile(t *testing.T) {
 	tmp := t.TempDir()
-	orig := os.Getenv("HOME")
-	os.Setenv("HOME", tmp)
-	defer os.Setenv("HOME", orig)
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
-	cacheDir := filepath.Join(tmp, "Library", "Caches", dirName)
-	os.MkdirAll(cacheDir, 0o755)
-	os.WriteFile(filepath.Join(cacheDir, fileName), []byte("not json"), 0o644)
+	d, _ := dir()
+	os.MkdirAll(d, 0o755)
+	p, _ := filePath()
+	os.WriteFile(p, []byte("not json"), 0o644)
 
 	s, err := Load()
 	if err != nil {
@@ -166,14 +165,18 @@ func TestLoadCorruptedFile(t *testing.T) {
 
 func TestClear(t *testing.T) {
 	tmp := t.TempDir()
-	orig := os.Getenv("HOME")
-	os.Setenv("HOME", tmp)
-	defer os.Setenv("HOME", orig)
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
-	cacheDir := filepath.Join(tmp, "Library", "Caches", dirName)
-	os.MkdirAll(cacheDir, 0o755)
-	p := filepath.Join(cacheDir, fileName)
-	os.WriteFile(p, []byte(`{}`), 0o644)
+	s := &Store{LastFetch: time.Now(), Events: []gitlab.Event{{ID: 1, ProjectID: 10, CreatedAt: time.Now()}}}
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	p, _ := filePath()
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		t.Fatal("file should exist after Save")
+	}
 
 	Clear()
 
@@ -185,6 +188,7 @@ func TestClear(t *testing.T) {
 func TestSave(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	now := time.Now()
 	s := &Store{
@@ -209,10 +213,11 @@ func TestSave(t *testing.T) {
 func TestSave_MkdirError(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
-	blocker := filepath.Join(tmp, "Library", "Caches", dirName)
-	os.MkdirAll(filepath.Dir(blocker), 0o755)
-	os.WriteFile(blocker, []byte("not a dir"), 0o644)
+	d, _ := dir()
+	os.MkdirAll(filepath.Dir(d), 0o755)
+	os.WriteFile(d, []byte("not a dir"), 0o644)
 
 	s := &Store{LastFetch: time.Now()}
 	err := s.Save()
@@ -222,10 +227,15 @@ func TestSave_MkdirError(t *testing.T) {
 }
 
 func TestSave_WriteError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("cannot test permission errors as root")
+	}
+
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
-	d := filepath.Join(tmp, "Library", "Caches", dirName)
+	d, _ := dir()
 	os.MkdirAll(d, 0o755)
 	os.Chmod(d, 0o555)
 	defer os.Chmod(d, 0o755)

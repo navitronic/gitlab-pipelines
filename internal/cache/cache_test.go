@@ -12,12 +12,8 @@ import (
 
 func TestSaveAndLoad(t *testing.T) {
 	tmp := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", tmp)
-	// On macOS, os.UserCacheDir() uses ~/Library/Caches and ignores XDG.
-	// Override via our dir() by setting HOME so UserCacheDir resolves to tmp.
-	if cacheDir, err := os.UserCacheDir(); err == nil && cacheDir != tmp {
-		t.Setenv("HOME", tmp)
-	}
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	pipelines := []pipeline.Pipeline{
 		{
@@ -60,6 +56,7 @@ func TestSaveAndLoad(t *testing.T) {
 func TestLoadMissing(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	loaded, err := Load()
 	if err != nil {
@@ -73,6 +70,7 @@ func TestLoadMissing(t *testing.T) {
 func TestLoadExpired(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	pipelines := []pipeline.Pipeline{
 		{ID: "1", Status: pipeline.StatusRunning},
@@ -104,6 +102,7 @@ func TestLoadExpired(t *testing.T) {
 func TestLoadCorrupted(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	if err := Save([]pipeline.Pipeline{{ID: "1"}}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -123,6 +122,7 @@ func TestLoadCorrupted(t *testing.T) {
 func TestClear(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	if err := Save([]pipeline.Pipeline{{ID: "1"}}); err != nil {
 		t.Fatalf("Save: %v", err)
@@ -142,10 +142,11 @@ func TestClear(t *testing.T) {
 func TestSave_MkdirError(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
-	blocker := filepath.Join(tmp, "Library", "Caches", dirName)
-	os.MkdirAll(filepath.Dir(blocker), 0o755)
-	os.WriteFile(blocker, []byte("not a dir"), 0o644)
+	d, _ := dir()
+	os.MkdirAll(filepath.Dir(d), 0o755)
+	os.WriteFile(d, []byte("not a dir"), 0o644)
 
 	err := Save([]pipeline.Pipeline{{ID: "1"}})
 	if err == nil {
@@ -154,8 +155,13 @@ func TestSave_MkdirError(t *testing.T) {
 }
 
 func TestSave_WriteError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("cannot test permission errors as root")
+	}
+
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
 
 	d, _ := dir()
 	os.MkdirAll(d, 0o755)
