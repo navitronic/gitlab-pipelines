@@ -76,7 +76,7 @@ func TestFetchPipelinesByUser(t *testing.T) {
 	script := fakeGlabScript(t, dir, response)
 
 	c := &Client{BinaryPath: script}
-	pipelines, err := c.FetchPipelinesByUser(context.Background(), 42, 1)
+	pipelines, err := c.FetchPipelinesByUser(context.Background(), 42, 1, time.Now().Add(-24*time.Hour))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

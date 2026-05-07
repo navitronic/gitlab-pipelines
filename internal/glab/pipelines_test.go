@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestFetchPipelineJobs(t *testing.T) {
@@ -32,7 +33,7 @@ func TestFetchPipelines_ParseError(t *testing.T) {
 	script := fakeGlabScript(t, dir, "not json")
 
 	c := &Client{BinaryPath: script}
-	_, err := c.FetchPipelinesByUser(context.Background(), 42, 1)
+	_, err := c.FetchPipelinesByUser(context.Background(), 42, 1, time.Now().Add(-24*time.Hour))
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
