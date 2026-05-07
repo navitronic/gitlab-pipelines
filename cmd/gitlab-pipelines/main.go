@@ -7,6 +7,7 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/navitronic/gitlab-builds/internal/activity"
 	"github.com/navitronic/gitlab-builds/internal/cache"
 	"github.com/navitronic/gitlab-builds/internal/glab"
 	"github.com/navitronic/gitlab-builds/internal/pipeline"
@@ -50,6 +51,17 @@ func main() {
 			if err != nil && isFatalErr(err) {
 				cache.Clear()
 			} else if len(pipelines) > 0 {
+				cache.Save(pipelines)
+			}
+			return tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err}
+		}
+	}
+	m.HardRefresh = func() tea.Cmd {
+		return func() tea.Msg {
+			activity.Clear()
+			cache.Clear()
+			pipelines, err := svc.ListPipelines(ctx, sendStatus)
+			if len(pipelines) > 0 {
 				cache.Save(pipelines)
 			}
 			return tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err}
