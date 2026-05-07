@@ -55,6 +55,8 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 
 	progress(fmt.Sprintf("fetching pipelines (%d projects)...", len(repos)))
 
+	updatedAfter := time.Now().Add(-24 * time.Hour)
+
 	type result struct {
 		pipelines []pipeline.Pipeline
 		err       error
@@ -63,7 +65,7 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 
 	for _, r := range repos {
 		go func(r discovery.ActiveRepo) {
-			pipelines, err := s.client.FetchPipelinesByUser(ctx, r.ProjectID, user.ID)
+			pipelines, err := s.client.FetchPipelinesByUser(ctx, r.ProjectID, user.ID, updatedAfter)
 			if err != nil {
 				ch <- result{err: wrapErr(err)}
 				return
