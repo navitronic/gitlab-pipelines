@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -735,6 +736,7 @@ func TestTruncateStr(t *testing.T) {
 		{"short", 10, true},
 		{"this is a longer string", 10, false},
 		{"exact", 5, true},
+		{"x", 1, true},
 	}
 	for _, tt := range tests {
 		got := truncateStr(tt.input, tt.maxWidth)
@@ -742,4 +744,305 @@ func TestTruncateStr(t *testing.T) {
 			t.Errorf("truncateStr(%q, %d) returned empty", tt.input, tt.maxWidth)
 		}
 	}
+}
+
+func TestDetailSetMRURL(t *testing.T) {
+	d := NewDetailModel(PipelineRow{
+		Pipeline: pipeline.Pipeline{ID: "1", Project: "a/b", Ref: "main", Status: pipeline.StatusPassed},
+	})
+	d.SetMRURL("https://gitlab.com/mr/5")
+	got := d.Render(80, 24)
+	if !contains(got, "https://gitlab.com/mr/5") {
+		t.Error("MR URL not rendered in detail")
+	}
+}
+
+func TestDetailTick(t *testing.T) {
+	d := NewDetailModel(PipelineRow{
+		Pipeline: pipeline.Pipeline{ID: "1", Project: "a/b", Ref: "main", Status: pipeline.StatusRunning},
+	})
+	d.SetJobs([]pipeline.Job{
+		{ID: "1", Name: "build", Stage: "build", Status: pipeline.StatusRunning},
+	}, nil)
+	frame0 := d.frame
+	d.Tick()
+	if d.frame == frame0 {
+		t.Error("Tick did not advance frame")
+	}
+}
+
+func TestDetailRenderJobs(t *testing.T) {
+	d := NewDetailModel(PipelineRow{
+		Pipeline: pipeline.Pipeline{ID: "1", Project: "a/b", Ref: "main", Status: pipeline.StatusPassed, Duration: 120 * time.Second},
+	})
+	d.SetJobs([]pipeline.Job{
+		{ID: "1", Name: "build", Stage: "build", Status: pipeline.StatusPassed, Duration: 30 * time.Second},
+		{ID: "2", Name: "test", Stage: "test", Status: pipeline.StatusFailed, Duration: 45 * time.Second},
+		{ID: "3", Name: "deploy", Stage: "deploy", Status: pipeline.StatusRunning, StartedAt: time.Now().Add(-10 * time.Second)},
+		{ID: "4", Name: "lint", Stage: "test", Status: pipeline.StatusPending, CreatedAt: time.Now().Add(-5 * time.Second)},
+		{ID: "5", Name: "cleanup", Stage: "deploy", Status: pipeline.StatusCanceled},
+		{ID: "6", Name: "skip", Stage: "deploy", Status: pipeline.StatusSkipped},
+	}, nil)
+
+	got := d.Render(80, 40)
+	if got == "" {
+		t.Fatal("Render returned empty with jobs")
+	}
+	if !contains(got, "build") {
+		t.Error("expected 'build' stage in output")
+	}
+	if !contains(got, "test") {
+		t.Error("expected 'test' stage in output")
+	}
+}
+
+func TestDetailRenderJobsError(t *testing.T) {
+	d := NewDetailModel(PipelineRow{
+		Pipeline: pipeline.Pipeline{ID: "1", Project: "a/b", Ref: "main", Status: pipeline.StatusPassed},
+	})
+	d.SetJobs(nil, errors.New("fetch failed"))
+
+	got := d.Render(80, 24)
+	if !contains(got, "Error loading jobs") {
+		t.Error("expected error message in output")
+	}
+}
+
+func TestDetailRenderNoJobs(t *testing.T) {
+	d := NewDetailModel(PipelineRow{
+		Pipeline: pipeline.Pipeline{ID: "1", Project: "a/b", Ref: "main", Status: pipeline.StatusPassed},
+	})
+	d.SetJobs([]pipeline.Job{}, nil)
+
+	got := d.Render(80, 24)
+	if !contains(got, "No jobs found") {
+		t.Error("expected 'No jobs found' message")
+	}
+}
+
+func TestPipelineDurationRunning(t *testing.T) {
+	d := NewDetailModel(PipelineRow{
+		Pipeline: pipeline.Pipeline{
+			ID:        "1",
+			Project:   "a/b",
+			Status:    pipeline.StatusRunning,
+			CreatedAt: time.Now().Add(-90 * time.Second),
+		},
+	})
+	got := d.Render(80, 24)
+	if !contains(got, "1m") {
+		t.Error("expected running duration in output")
+	}
+}
+
+func TestMRLoadedMsg(t *testing.T) {
+	m := testModel()
+	m.selectedID = "1"
+
+	result, _ := m.Update(MRLoadedMsg{PipelineID: "1", URL: "https://gitlab.com/mr/10"})
+	m = result.(Model)
+
+	if m.detail.mrURL != "https://gitlab.com/mr/10" {
+		t.Errorf("mrURL = %q, want https://gitlab.com/mr/10", m.detail.mrURL)
+	}
+}
+
+func TestMRLoadedMsg_WrongPipeline(t *testing.T) {
+	m := testModel()
+	m.selectedID = "1"
+
+	result, _ := m.Update(MRLoadedMsg{PipelineID: "999", URL: "https://gitlab.com/mr/10"})
+	m = result.(Model)
+
+	if m.detail.mrURL != "" {
+		t.Errorf("mrURL should be empty for wrong pipeline ID, got %q", m.detail.mrURL)
+	}
+}
+
+func TestPipelineUpdatedMsg(t *testing.T) {
+	m := testModel()
+
+	result, _ := m.Update(PipelineUpdatedMsg{
+		Pipeline: pipeline.Pipeline{ID: "1", Status: pipeline.StatusFailed, Ref: "main"},
+	})
+	m = result.(Model)
+
+	if m.detail.row.Pipeline.Status != pipeline.StatusFailed {
+		t.Errorf("status = %v, want StatusFailed", m.detail.row.Pipeline.Status)
+	}
+	if m.detail.row.Pipeline.Project != "group/alpha" {
+		t.Error("Project should be preserved when PipelineUpdatedMsg has empty project")
+	}
+}
+
+func TestEnterInPipelines_TwoPane(t *testing.T) {
+	m := testModel()
+	m.width = 100
+	m.focus = PanePipelines
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+
+	if m.focus != PaneDetail {
+		t.Errorf("focus = %d, want PaneDetail after Enter in 2-pane pipelines view", m.focus)
+	}
+}
+
+func TestRefreshTickMsg(t *testing.T) {
+	m := testModel()
+	refreshCalled := false
+	m.Refresh = func() tea.Cmd {
+		refreshCalled = true
+		return nil
+	}
+	m.FetchJobs = func(_, _ string) tea.Cmd { return nil }
+	m.FetchPipeline = func(_, _ string) tea.Cmd { return nil }
+
+	result, cmd := m.Update(refreshTickMsg{})
+	m = result.(Model)
+
+	if !refreshCalled {
+		t.Error("Refresh not called on refreshTickMsg")
+	}
+	if !m.loading {
+		t.Error("should be loading after refreshTickMsg")
+	}
+	if cmd == nil {
+		t.Error("expected commands from refreshTickMsg")
+	}
+}
+
+func TestDetailTickMsg_ActiveJobs(t *testing.T) {
+	m := testModel()
+	m.detailTicking = true
+	m.detail.SetJobs([]pipeline.Job{
+		{ID: "1", Name: "build", Status: pipeline.StatusRunning, Stage: "build"},
+	}, nil)
+	initialFrame := m.detail.frame
+
+	result, cmd := m.Update(detailTickMsg{})
+	m = result.(Model)
+
+	if m.detail.frame == initialFrame {
+		t.Error("frame should advance on detailTickMsg with active jobs")
+	}
+	if cmd == nil {
+		t.Error("should schedule another tick when active jobs exist")
+	}
+}
+
+func TestRenderReposPane_Loading(t *testing.T) {
+	m := testModel()
+	m.loading = true
+	m.loadingStatus = "fetching data..."
+
+	view := m.View()
+	if view == "" {
+		t.Fatal("View returned empty during loading with pipelines")
+	}
+}
+
+func TestRenderPipelinesPane_LoadingFocused(t *testing.T) {
+	m := testModel()
+	m.loading = true
+	m.focus = PanePipelines
+	m.loadingStatus = "syncing data..."
+
+	view := m.View()
+	if view == "" {
+		t.Fatal("View returned empty during loading with pipelines focus")
+	}
+}
+
+func TestFatalError_ClearsState(t *testing.T) {
+	m := testModel()
+
+	result, _ := m.Update(PipelinesLoadedMsg{Err: pipeline.ErrAuthRequired})
+	m = result.(Model)
+
+	if m.detail != nil {
+		t.Error("detail should be nil after fatal error")
+	}
+	if len(m.pipelines) != 0 {
+		t.Error("pipelines should be cleared after fatal error")
+	}
+	if m.selectedID != "" {
+		t.Error("selectedID should be empty after fatal error")
+	}
+}
+
+func TestNonFatalError_PreservesState(t *testing.T) {
+	m := testModel()
+	origLen := len(m.pipelines)
+
+	result, _ := m.Update(PipelinesLoadedMsg{Err: errors.New("timeout")})
+	m = result.(Model)
+
+	if len(m.pipelines) != origLen {
+		t.Error("pipelines should be preserved on non-fatal error")
+	}
+	if m.err == nil {
+		t.Error("err should be set")
+	}
+}
+
+func TestRightNav_TwoPane(t *testing.T) {
+	m := testModel()
+	m.width = 100
+	m.focus = PanePipelines
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = result.(Model)
+
+	if m.focus != PanePipelines {
+		t.Errorf("in 2-pane, right from pipelines should stay at PanePipelines, got %d", m.focus)
+	}
+}
+
+func TestLoadingStatusMsg(t *testing.T) {
+	m := New()
+	m.width = 120
+	m.height = 24
+	m.loading = true
+
+	result, _ := m.Update(LoadingStatusMsg{Status: "discovering..."})
+	m = result.(Model)
+
+	if m.loadingStatus != "discovering..." {
+		t.Errorf("loadingStatus = %q, want \"discovering...\"", m.loadingStatus)
+	}
+
+	view := m.View()
+	if !contains(view, "discovering...") {
+		t.Error("loading status should appear in view")
+	}
+}
+
+func TestSelectPipeline_EmptyFiltered(t *testing.T) {
+	m := Model{
+		width:        120,
+		height:       24,
+		selectedRepo: "nonexistent/repo",
+	}
+	m.filterPipelines()
+	m, _ = m.selectPipeline()
+
+	if m.detail != nil {
+		t.Error("detail should be nil with empty filtered list")
+	}
+	if m.selectedID != "" {
+		t.Error("selectedID should be empty with empty filtered list")
+	}
+}
+
+func TestQuitKey(t *testing.T) {
+	m := testModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if cmd == nil {
+		t.Fatal("expected quit cmd")
+	}
+}
+
+func contains(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

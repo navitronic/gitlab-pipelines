@@ -8,12 +8,28 @@ import (
 	"testing"
 )
 
+func TestNew(t *testing.T) {
+	c := New()
+	if c == nil {
+		t.Fatal("New() returned nil")
+	}
+	if c.BinaryPath != "glab" {
+		t.Errorf("BinaryPath = %q, want \"glab\"", c.BinaryPath)
+	}
+}
+
 func TestRun_BinaryNotFound(t *testing.T) {
 	c := &Client{BinaryPath: "/nonexistent/path/glab-fake"}
 	_, err := c.Run(context.Background(), "api", "user")
 	if err == nil {
 		t.Fatal("expected error for missing binary")
 	}
+}
+
+func TestRun_EmptyBinaryPath(t *testing.T) {
+	c := &Client{BinaryPath: ""}
+	_, err := c.Run(context.Background(), "version")
+	_ = err
 }
 
 func TestRun_ExitError(t *testing.T) {

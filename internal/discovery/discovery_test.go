@@ -1,11 +1,70 @@
 package discovery
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/navitronic/gitlab-builds/internal/gitlab"
+	"github.com/navitronic/gitlab-builds/internal/glab"
 )
+
+func TestNew(t *testing.T) {
+	c := glab.New()
+	d := New(c)
+	if d == nil {
+		t.Fatal("New() returned nil")
+	}
+}
+
+func TestDiscoverSince(t *testing.T) {
+	dir := t.TempDir()
+	response := `[{"id":1,"action_name":"pushed to","project_id":42,"created_at":"2025-01-01T00:00:00Z","push_data":{"commit_count":1,"ref":"main","ref_type":"branch","commit_to":"abc"}}]`
+	script := fakeDiscoveryScript(t, dir, response)
+
+	c := &glab.Client{BinaryPath: script}
+	d := New(c)
+
+	events, repos, err := d.DiscoverSince(context.Background(), 1, time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if len(repos) != 1 {
+		t.Fatalf("expected 1 repo, got %d", len(repos))
+	}
+	if repos[0].ProjectID != 42 {
+		t.Errorf("ProjectID = %d, want 42", repos[0].ProjectID)
+	}
+}
+
+func TestDiscoverSince_Error(t *testing.T) {
+	c := &glab.Client{BinaryPath: "/nonexistent/glab"}
+	d := New(c)
+
+	_, _, err := d.DiscoverSince(context.Background(), 1, time.Now().Add(-24*time.Hour))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func fakeDiscoveryScript(t *testing.T, dir string, response string) string {
+	t.Helper()
+	var script string
+	if runtime.GOOS == "windows" {
+		script = filepath.Join(dir, "glab.bat")
+		os.WriteFile(script, []byte("@echo off\necho "+response+"\n"), 0o755)
+	} else {
+		script = filepath.Join(dir, "glab")
+		os.WriteFile(script, []byte("#!/bin/sh\necho '"+response+"'\n"), 0o755)
+	}
+	return script
+}
 
 func TestExtractActiveRepos_AllEventTypes(t *testing.T) {
 	now := time.Now()

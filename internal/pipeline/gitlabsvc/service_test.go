@@ -1,6 +1,7 @@
 package gitlabsvc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"testing"
@@ -10,6 +11,367 @@ import (
 	"github.com/navitronic/gitlab-builds/internal/glab"
 	"github.com/navitronic/gitlab-builds/internal/pipeline"
 )
+
+type mockClient struct {
+	currentUser              func(ctx context.Context) (*gitlab.User, error)
+	fetchUserEventsSince     func(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
+	fetchProject             func(ctx context.Context, projectID int) (*gitlab.Project, error)
+	fetchPipelinesByUser     func(ctx context.Context, projectID int, userID int, updatedAfter time.Time) ([]gitlab.Pipeline, error)
+	fetchPipeline            func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
+	fetchPipelineJobs        func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
+	fetchMergeRequestByBranch func(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
+}
+
+func (m *mockClient) CurrentUser(ctx context.Context) (*gitlab.User, error) {
+	return m.currentUser(ctx)
+}
+func (m *mockClient) FetchUserEventsSince(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error) {
+	return m.fetchUserEventsSince(ctx, userID, after)
+}
+func (m *mockClient) FetchProject(ctx context.Context, projectID int) (*gitlab.Project, error) {
+	return m.fetchProject(ctx, projectID)
+}
+func (m *mockClient) FetchPipelinesByUser(ctx context.Context, projectID int, userID int, updatedAfter time.Time) ([]gitlab.Pipeline, error) {
+	return m.fetchPipelinesByUser(ctx, projectID, userID, updatedAfter)
+}
+func (m *mockClient) FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error) {
+	return m.fetchPipeline(ctx, projectID, pipelineID)
+}
+func (m *mockClient) FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error) {
+	return m.fetchPipelineJobs(ctx, projectID, pipelineID)
+}
+func (m *mockClient) FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error) {
+	return m.fetchMergeRequestByBranch(ctx, projectID, branch)
+}
+
+func TestGetPipeline(t *testing.T) {
+	mc := &mockClient{
+		fetchPipeline: func(_ context.Context, projectID, pipelineID int) (gitlab.Pipeline, error) {
+			return gitlab.Pipeline{ID: pipelineID, Status: "success", Ref: "main", SHA: "abc"}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	p, err := svc.GetPipeline(context.Background(), "42", "99")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.ID != "99" {
+		t.Errorf("ID = %q, want \"99\"", p.ID)
+	}
+	if p.Status != pipeline.StatusPassed {
+		t.Errorf("Status = %v, want StatusPassed", p.Status)
+	}
+}
+
+func TestGetPipeline_InvalidProjectID(t *testing.T) {
+	svc := NewWithClient(&mockClient{})
+	_, err := svc.GetPipeline(context.Background(), "not-a-number", "99")
+	if err == nil {
+		t.Fatal("expected error for invalid project ID")
+	}
+}
+
+func TestGetPipeline_InvalidPipelineID(t *testing.T) {
+	svc := NewWithClient(&mockClient{})
+	_, err := svc.GetPipeline(context.Background(), "42", "not-a-number")
+	if err == nil {
+		t.Fatal("expected error for invalid pipeline ID")
+	}
+}
+
+func TestGetPipeline_FetchError(t *testing.T) {
+	mc := &mockClient{
+		fetchPipeline: func(_ context.Context, _, _ int) (gitlab.Pipeline, error) {
+			return gitlab.Pipeline{}, glab.ErrGlabNotFound
+		},
+	}
+	svc := NewWithClient(mc)
+	_, err := svc.GetPipeline(context.Background(), "42", "99")
+	if !errors.Is(err, pipeline.ErrClientNotFound) {
+		t.Errorf("expected ErrClientNotFound, got %v", err)
+	}
+}
+
+func TestListJobs(t *testing.T) {
+	mc := &mockClient{
+		fetchPipelineJobs: func(_ context.Context, _, _ int) ([]gitlab.Job, error) {
+			return []gitlab.Job{
+				{ID: 1, Name: "build", Stage: "build", Status: "success", Duration: 30},
+				{ID: 2, Name: "test", Stage: "test", Status: "running", Duration: 10},
+			}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	jobs, err := svc.ListJobs(context.Background(), "42", "99")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("expected 2 jobs, got %d", len(jobs))
+	}
+	if jobs[0].Name != "build" {
+		t.Errorf("jobs[0].Name = %q, want \"build\"", jobs[0].Name)
+	}
+}
+
+func TestListJobs_InvalidProjectID(t *testing.T) {
+	svc := NewWithClient(&mockClient{})
+	_, err := svc.ListJobs(context.Background(), "abc", "99")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestListJobs_InvalidPipelineID(t *testing.T) {
+	svc := NewWithClient(&mockClient{})
+	_, err := svc.ListJobs(context.Background(), "42", "abc")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestListJobs_FetchError(t *testing.T) {
+	mc := &mockClient{
+		fetchPipelineJobs: func(_ context.Context, _, _ int) ([]gitlab.Job, error) {
+			return nil, glab.ErrAuthRequired
+		},
+	}
+	svc := NewWithClient(mc)
+	_, err := svc.ListJobs(context.Background(), "42", "99")
+	if !errors.Is(err, pipeline.ErrAuthRequired) {
+		t.Errorf("expected ErrAuthRequired, got %v", err)
+	}
+}
+
+func TestGetMergeRequestURL(t *testing.T) {
+	mc := &mockClient{
+		fetchMergeRequestByBranch: func(_ context.Context, _ int, branch string) (gitlab.MergeRequest, error) {
+			return gitlab.MergeRequest{IID: 5, WebURL: "https://gitlab.com/mr/5"}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	url, err := svc.GetMergeRequestURL(context.Background(), "42", "feature")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if url != "https://gitlab.com/mr/5" {
+		t.Errorf("URL = %q", url)
+	}
+}
+
+func TestGetMergeRequestURL_InvalidProjectID(t *testing.T) {
+	svc := NewWithClient(&mockClient{})
+	_, err := svc.GetMergeRequestURL(context.Background(), "abc", "main")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestGetMergeRequestURL_FetchError(t *testing.T) {
+	mc := &mockClient{
+		fetchMergeRequestByBranch: func(_ context.Context, _ int, _ string) (gitlab.MergeRequest, error) {
+			return gitlab.MergeRequest{}, fmt.Errorf("network error")
+		},
+	}
+	svc := NewWithClient(mc)
+	_, err := svc.GetMergeRequestURL(context.Background(), "42", "main")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestListPipelines_CurrentUserError(t *testing.T) {
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return nil, glab.ErrGlabNotFound
+		},
+	}
+	svc := NewWithClient(mc)
+	_, err := svc.ListPipelines(context.Background(), func(string) {})
+	if !errors.Is(err, pipeline.ErrClientNotFound) {
+		t.Errorf("expected ErrClientNotFound, got %v", err)
+	}
+}
+
+func TestListPipelines_EventsError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "test"}, nil
+		},
+		fetchUserEventsSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Event, error) {
+			return nil, fmt.Errorf("network error")
+		},
+	}
+	svc := NewWithClient(mc)
+	_, err := svc.ListPipelines(context.Background(), func(string) {})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestListPipelines_NoRepos(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "test"}, nil
+		},
+		fetchUserEventsSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Event, error) {
+			return []gitlab.Event{}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+	pipelines, err := svc.ListPipelines(context.Background(), func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pipelines != nil {
+		t.Errorf("expected nil pipelines, got %v", pipelines)
+	}
+}
+
+func TestListPipelines_Success(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	now := time.Now()
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "test"}, nil
+		},
+		fetchUserEventsSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Event, error) {
+			return []gitlab.Event{
+				{ID: 1, ActionName: "pushed to", ProjectID: 42, CreatedAt: now.Add(-1 * time.Hour), PushData: &gitlab.PushData{CommitCount: 1, Ref: "main", RefType: "branch", CommitTo: "abc"}},
+			}, nil
+		},
+		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
+		},
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+			return []gitlab.Pipeline{
+				{ID: 100, Status: "success", Ref: "main", SHA: "abc", UpdatedAt: now},
+				{ID: 101, Status: "running", Ref: "feat", SHA: "def", UpdatedAt: now.Add(-5 * time.Minute)},
+			}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	pipelines, err := svc.ListPipelines(context.Background(), func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pipelines) != 2 {
+		t.Fatalf("expected 2 pipelines, got %d", len(pipelines))
+	}
+	if pipelines[0].ID != "100" {
+		t.Errorf("first pipeline ID = %q, want \"100\" (sorted by UpdatedAt)", pipelines[0].ID)
+	}
+}
+
+func TestListPipelines_PipelineFetchError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	now := time.Now()
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "test"}, nil
+		},
+		fetchUserEventsSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Event, error) {
+			return []gitlab.Event{
+				{ID: 1, ActionName: "pushed to", ProjectID: 42, CreatedAt: now.Add(-1 * time.Hour), PushData: &gitlab.PushData{CommitCount: 1, Ref: "main", RefType: "branch", CommitTo: "abc"}},
+			}, nil
+		},
+		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
+		},
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+			return nil, fmt.Errorf("network error")
+		},
+	}
+	svc := NewWithClient(mc)
+	_, err := svc.ListPipelines(context.Background(), func(string) {})
+	if err == nil {
+		t.Fatal("expected error when all pipeline fetches fail")
+	}
+}
+
+func TestListPipelines_ProjectPathFromCache(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	now := time.Now()
+	fetchProjectCalls := 0
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "test"}, nil
+		},
+		fetchUserEventsSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Event, error) {
+			return []gitlab.Event{
+				{ID: 1, ActionName: "pushed to", ProjectID: 42, CreatedAt: now.Add(-1 * time.Hour), PushData: &gitlab.PushData{CommitCount: 1, Ref: "main", RefType: "branch", CommitTo: "abc"}},
+				{ID: 2, ActionName: "pushed to", ProjectID: 42, CreatedAt: now.Add(-2 * time.Hour), PushData: &gitlab.PushData{CommitCount: 1, Ref: "feat", RefType: "branch", CommitTo: "def"}},
+			}, nil
+		},
+		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
+			fetchProjectCalls++
+			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
+		},
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+			return []gitlab.Pipeline{{ID: 100, Status: "success", UpdatedAt: now}}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	_, err := svc.ListPipelines(context.Background(), func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if fetchProjectCalls > 1 {
+		t.Errorf("FetchProject called %d times, expected at most 1", fetchProjectCalls)
+	}
+}
+
+func TestListPipelines_FetchProjectError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	now := time.Now()
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "test"}, nil
+		},
+		fetchUserEventsSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Event, error) {
+			return []gitlab.Event{
+				{ID: 1, ActionName: "pushed to", ProjectID: 42, CreatedAt: now.Add(-1 * time.Hour), PushData: &gitlab.PushData{CommitCount: 1, Ref: "main", RefType: "branch", CommitTo: "abc"}},
+			}, nil
+		},
+		fetchProject: func(_ context.Context, _ int) (*gitlab.Project, error) {
+			return nil, fmt.Errorf("not found")
+		},
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+			return []gitlab.Pipeline{{ID: 100, Status: "success", UpdatedAt: now}}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	pipelines, err := svc.ListPipelines(context.Background(), func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
+	}
+}
+
+
 
 func TestConvertStatus(t *testing.T) {
 	tests := []struct {

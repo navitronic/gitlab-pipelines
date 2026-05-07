@@ -181,3 +181,58 @@ func TestClear(t *testing.T) {
 		t.Error("Clear() did not remove the file")
 	}
 }
+
+func TestSave(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	now := time.Now()
+	s := &Store{
+		LastFetch: now,
+		Events: []gitlab.Event{
+			{ID: 1, ProjectID: 10, CreatedAt: now.Add(-1 * time.Hour)},
+		},
+	}
+	if err := s.Save(); err != nil {
+		t.Fatalf("Save() returned error: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("Load() after Save() returned error: %v", err)
+	}
+	if len(loaded.Events) != 1 {
+		t.Errorf("expected 1 event after Save/Load, got %d", len(loaded.Events))
+	}
+}
+
+func TestSave_MkdirError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	blocker := filepath.Join(tmp, "Library", "Caches", dirName)
+	os.MkdirAll(filepath.Dir(blocker), 0o755)
+	os.WriteFile(blocker, []byte("not a dir"), 0o644)
+
+	s := &Store{LastFetch: time.Now()}
+	err := s.Save()
+	if err == nil {
+		t.Fatal("expected error when cache dir cannot be created")
+	}
+}
+
+func TestSave_WriteError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	d := filepath.Join(tmp, "Library", "Caches", dirName)
+	os.MkdirAll(d, 0o755)
+	os.Chmod(d, 0o555)
+	defer os.Chmod(d, 0o755)
+
+	s := &Store{LastFetch: time.Now()}
+	err := s.Save()
+	if err == nil {
+		t.Fatal("expected error when directory is read-only")
+	}
+}

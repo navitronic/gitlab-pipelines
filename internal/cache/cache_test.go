@@ -3,6 +3,7 @@ package cache
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -80,13 +81,10 @@ func TestLoadExpired(t *testing.T) {
 		t.Fatalf("Save: %v", err)
 	}
 
-	// Backdate the cache file modification time beyond TTL.
 	p, _ := filePath()
 	old := time.Now().Add(-2 * time.Hour)
 	os.Chtimes(p, old, old)
 
-	// Load reads cached_at from JSON, not mtime, so we need to manipulate the JSON.
-	// Instead, write an entry with an old CachedAt directly.
 	e := entry{
 		CachedAt:  time.Now().Add(-2 * time.Hour),
 		Pipelines: pipelines,
@@ -100,5 +98,72 @@ func TestLoadExpired(t *testing.T) {
 	}
 	if loaded != nil {
 		t.Fatalf("expected nil (expired), got %v", loaded)
+	}
+}
+
+func TestLoadCorrupted(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	if err := Save([]pipeline.Pipeline{{ID: "1"}}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	p, _ := filePath()
+	os.WriteFile(p, []byte("not json"), 0o644)
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if loaded != nil {
+		t.Fatalf("expected nil for corrupted, got %v", loaded)
+	}
+}
+
+func TestClear(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	if err := Save([]pipeline.Pipeline{{ID: "1"}}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	p, _ := filePath()
+	if _, err := os.Stat(p); os.IsNotExist(err) {
+		t.Fatal("file should exist after Save")
+	}
+
+	Clear()
+
+	if _, err := os.Stat(p); !os.IsNotExist(err) {
+		t.Error("Clear() did not remove the file")
+	}
+}
+
+func TestSave_MkdirError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	blocker := filepath.Join(tmp, "Library", "Caches", dirName)
+	os.MkdirAll(filepath.Dir(blocker), 0o755)
+	os.WriteFile(blocker, []byte("not a dir"), 0o644)
+
+	err := Save([]pipeline.Pipeline{{ID: "1"}})
+	if err == nil {
+		t.Fatal("expected error when cache dir cannot be created")
+	}
+}
+
+func TestSave_WriteError(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	d, _ := dir()
+	os.MkdirAll(d, 0o755)
+	os.Chmod(d, 0o555)
+	defer os.Chmod(d, 0o755)
+
+	err := Save([]pipeline.Pipeline{{ID: "1"}})
+	if err == nil {
+		t.Fatal("expected error when directory is read-only")
 	}
 }
