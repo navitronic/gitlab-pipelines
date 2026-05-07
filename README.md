@@ -38,6 +38,7 @@ The application discovers your recent push activity, fetches associated pipeline
 | `↑` / `↓` | Navigate pipelines |
 | `Enter` | View pipeline details |
 | `r` | Refresh pipelines |
+| `R` | Clear cache and refetch all data |
 | `q` / `Ctrl+C` | Quit |
 
 ### Pipeline Details

@@ -58,6 +58,7 @@ type Model struct {
 	FetchPipeline func(projectID, pipelineID string) tea.Cmd
 	FetchMR       func(projectID, pipelineID, ref string) tea.Cmd
 	Refresh       func() tea.Cmd
+	HardRefresh   func() tea.Cmd
 }
 
 // New creates a new TUI model in loading state.
@@ -142,6 +143,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.err = nil
 				return m, tea.Batch(m.spinner.Tick, m.Refresh())
+			}
+		case "R":
+			if !m.loading && m.HardRefresh != nil {
+				m.loading = true
+				m.err = nil
+				return m, tea.Batch(m.spinner.Tick, m.HardRefresh())
 			}
 		case "o":
 			if len(m.pipelines) > 0 && m.cursor < len(m.pipelines) {
@@ -303,7 +310,7 @@ func (m Model) View() string {
 }
 
 func (m Model) renderStatusBar() string {
-	center := "↑/↓: navigate • o: open • r: refresh • q: quit"
+	center := "↑/↓: navigate • o: open • r: refresh • R: hard refresh • q: quit"
 	content := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, center)
 	return statusBarStyle.Width(m.width).Render(content)
 }

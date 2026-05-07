@@ -117,3 +117,11 @@ func (s *Store) SinceTime() time.Time {
 	}
 	return time.Now().Add(-window)
 }
+
+func Clear() {
+	p, err := filePath()
+	if err != nil {
+		return
+	}
+	os.Remove(p)
+}
