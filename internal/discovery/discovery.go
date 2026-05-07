@@ -33,14 +33,6 @@ func (d *Discoverer) DiscoverSince(ctx context.Context, userID int, since time.T
 	}
 
 	repos := ExtractActiveRepos(events)
-
-	for i, r := range repos {
-		project, err := d.client.FetchProject(ctx, r.ProjectID)
-		if err == nil {
-			repos[i].ProjectPath = project.PathWithNamespace
-		}
-	}
-
 	return events, repos, nil
 }
 

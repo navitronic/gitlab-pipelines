@@ -49,6 +49,27 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 	// Re-derive repos from the full cached window (not just this fetch).
 	repos = discovery.ExtractActiveRepos(store.Events)
 
+	pathCache := make(map[int]string)
+	for _, r := range repos {
+		if r.ProjectPath != "" {
+			pathCache[r.ProjectID] = r.ProjectPath
+		}
+	}
+	for i, r := range repos {
+		if r.ProjectPath != "" {
+			continue
+		}
+		if path, ok := pathCache[r.ProjectID]; ok {
+			repos[i].ProjectPath = path
+			continue
+		}
+		project, err := s.client.FetchProject(ctx, r.ProjectID)
+		if err == nil {
+			repos[i].ProjectPath = project.PathWithNamespace
+			pathCache[r.ProjectID] = project.PathWithNamespace
+		}
+	}
+
 	if len(repos) == 0 {
 		return nil, nil
 	}
