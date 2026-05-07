@@ -78,6 +78,7 @@ type Model struct {
 	width         int
 	height        int
 	detail        *DetailModel
+	detailTicking bool
 	selectedID    string
 	FetchJobs     func(projectID, pipelineID string) tea.Cmd
 	FetchPipeline func(projectID, pipelineID string) tea.Cmd
@@ -243,6 +244,7 @@ func (m Model) selectPipeline() (Model, tea.Cmd) {
 	}
 	m.selectedID = row.Pipeline.ID
 	m.detail = NewDetailModel(row)
+	m.detailTicking = false
 	var cmds []tea.Cmd
 	if m.FetchJobs != nil {
 		cmds = append(cmds, m.FetchJobs(row.Pipeline.ProjectID, row.Pipeline.ID))
@@ -389,7 +391,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case JobsLoadedMsg:
 		if m.detail != nil {
 			m.detail.SetJobs(msg.Jobs, msg.Err)
-			if m.detail.hasActiveJobs() {
+			if m.detail.hasActiveJobs() && !m.detailTicking {
+				m.detailTicking = true
 				return m, scheduleDetailTick()
 			}
 		}
@@ -428,6 +431,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.detail.Tick()
 			return m, scheduleDetailTick()
 		}
+		m.detailTicking = false
 
 	case spinner.TickMsg:
 		if m.loading {
