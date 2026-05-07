@@ -158,9 +158,11 @@ func TestSelectPipeline(t *testing.T) {
 		height: 24,
 		pipelines: []PipelineRow{
 			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Status: pipeline.StatusPassed, Project: "a/b"}},
-			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "20", Status: pipeline.StatusRunning, Project: "c/d"}},
+			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "20", Status: pipeline.StatusRunning, Project: "a/b"}},
 		},
+		selectedRepo: "a/b",
 	}
+	m.deriveRepos()
 
 	m, _ = m.selectPipeline()
 	if m.detail == nil {
@@ -195,20 +197,81 @@ func TestDetailRender(t *testing.T) {
 	}
 }
 
-func TestListWidth(t *testing.T) {
+func TestReposPaneWidth(t *testing.T) {
 	tests := []struct {
-		width    int
-		wantList int
+		width int
 	}{
-		{120, 48},
-		{80, 32},
-		{60, 30},
-		{20, 20},
+		{120},
+		{100},
+		{80},
+		{60},
 	}
 	for _, tt := range tests {
 		m := Model{width: tt.width}
-		if got := m.listWidth(); got != tt.wantList {
-			t.Errorf("listWidth(width=%d) = %d, want %d", tt.width, got, tt.wantList)
+		repoW := m.reposPaneWidth()
+		if repoW <= 0 || repoW > tt.width {
+			t.Errorf("reposPaneWidth(width=%d) = %d, out of range", tt.width, repoW)
+		}
+	}
+}
+
+func TestLayoutMode(t *testing.T) {
+	tests := []struct {
+		width int
+		want  layoutMode
+	}{
+		{120, layoutThree},
+		{140, layoutThree},
+		{100, layoutTwo},
+		{80, layoutTwo},
+		{79, layoutOne},
+		{60, layoutOne},
+	}
+	for _, tt := range tests {
+		m := Model{width: tt.width}
+		if got := m.layout(); got != tt.want {
+			t.Errorf("layout(width=%d) = %d, want %d", tt.width, got, tt.want)
+		}
+	}
+}
+
+func TestDeriveRepos(t *testing.T) {
+	m := Model{
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", Project: "group/project-b"}},
+			{Pipeline: pipeline.Pipeline{ID: "2", Project: "group/project-a"}},
+			{Pipeline: pipeline.Pipeline{ID: "3", Project: "group/project-b"}},
+		},
+	}
+	m.deriveRepos()
+
+	if len(m.repos) != 2 {
+		t.Fatalf("expected 2 repos, got %d", len(m.repos))
+	}
+	if m.repos[0] != "group/project-a" {
+		t.Errorf("repos[0] = %q, want group/project-a", m.repos[0])
+	}
+	if m.repos[1] != "group/project-b" {
+		t.Errorf("repos[1] = %q, want group/project-b", m.repos[1])
+	}
+	if m.selectedRepo != "group/project-a" {
+		t.Errorf("selectedRepo = %q, want group/project-a", m.selectedRepo)
+	}
+}
+
+func TestRepoShortName(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"group/project", "group/project"},
+		{"org/group/project", "group/project"},
+		{"a/b/c/d", "c/d"},
+		{"project", "project"},
+	}
+	for _, tt := range tests {
+		if got := repoShortName(tt.input); got != tt.want {
+			t.Errorf("repoShortName(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
