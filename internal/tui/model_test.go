@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/navitronic/gitlab-builds/internal/pipeline"
 )
 
@@ -352,5 +353,393 @@ func TestDetailTickingResetsOnPipelineChange(t *testing.T) {
 	m, _ = m.selectPipeline()
 	if m.detailTicking {
 		t.Fatal("detailTicking should reset when selecting a new pipeline")
+	}
+}
+
+func testModel() Model {
+	m := New()
+	m.width = 120
+	m.height = 24
+	m.loading = false
+	m.pipelines = []PipelineRow{
+		{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "group/alpha", Status: pipeline.StatusPassed, Ref: "main", SHA: "abc12345", UpdatedAt: time.Now()}},
+		{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "10", Project: "group/alpha", Status: pipeline.StatusRunning, Ref: "feat", SHA: "def67890", UpdatedAt: time.Now()}},
+		{Pipeline: pipeline.Pipeline{ID: "3", ProjectID: "20", Project: "group/beta", Status: pipeline.StatusFailed, Ref: "main", SHA: "fff11111", UpdatedAt: time.Now()}},
+	}
+	m.deriveRepos()
+	m, _ = m.selectPipeline()
+	return m
+}
+
+func TestNavigateDownInRepos(t *testing.T) {
+	m := testModel()
+	m.focus = PaneRepos
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = result.(Model)
+
+	if m.repoCursor != 1 {
+		t.Errorf("repoCursor = %d, want 1", m.repoCursor)
+	}
+	if m.selectedRepo != "group/beta" {
+		t.Errorf("selectedRepo = %q, want group/beta", m.selectedRepo)
+	}
+}
+
+func TestNavigateUpInRepos(t *testing.T) {
+	m := testModel()
+	m.focus = PaneRepos
+	m.repoCursor = 1
+	m = m.selectRepo()
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = result.(Model)
+
+	if m.repoCursor != 0 {
+		t.Errorf("repoCursor = %d, want 0", m.repoCursor)
+	}
+}
+
+func TestNavigateDownInPipelines(t *testing.T) {
+	m := testModel()
+	m.focus = PanePipelines
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = result.(Model)
+
+	if m.cursor != 1 {
+		t.Errorf("cursor = %d, want 1", m.cursor)
+	}
+	if m.selectedID != "2" {
+		t.Errorf("selectedID = %q, want \"2\"", m.selectedID)
+	}
+}
+
+func TestLeftRightNavigation(t *testing.T) {
+	m := testModel()
+	m.focus = PaneRepos
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = result.(Model)
+	if m.focus != PanePipelines {
+		t.Errorf("focus = %d, want PanePipelines", m.focus)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = result.(Model)
+	if m.focus != PaneDetail {
+		t.Errorf("focus = %d, want PaneDetail", m.focus)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyRight})
+	m = result.(Model)
+	if m.focus != PaneDetail {
+		t.Errorf("focus should stay at PaneDetail, got %d", m.focus)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = result.(Model)
+	if m.focus != PanePipelines {
+		t.Errorf("focus = %d, want PanePipelines", m.focus)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = result.(Model)
+	if m.focus != PaneRepos {
+		t.Errorf("focus = %d, want PaneRepos", m.focus)
+	}
+
+	result, _ = m.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	m = result.(Model)
+	if m.focus != PaneRepos {
+		t.Errorf("focus should stay at PaneRepos, got %d", m.focus)
+	}
+}
+
+func TestViewLoadingState(t *testing.T) {
+	m := New()
+	m.width = 120
+	m.height = 24
+	m.loading = true
+
+	view := m.View()
+	if view == "" {
+		t.Fatal("View returned empty string in loading state")
+	}
+}
+
+func TestViewErrorState(t *testing.T) {
+	m := New()
+	m.width = 120
+	m.height = 24
+	m.loading = false
+	m.err = errors.New("connection failed")
+
+	view := m.View()
+	if view == "" {
+		t.Fatal("View returned empty string in error state")
+	}
+}
+
+func TestViewEmptyState(t *testing.T) {
+	m := New()
+	m.width = 120
+	m.height = 24
+	m.loading = false
+
+	view := m.View()
+	if view == "" {
+		t.Fatal("View returned empty string in empty state")
+	}
+}
+
+func TestViewThreePaneLayout(t *testing.T) {
+	m := testModel()
+	view := m.View()
+	if view == "" {
+		t.Fatal("View returned empty string in 3-pane layout")
+	}
+}
+
+func TestViewTwoPaneLayout(t *testing.T) {
+	m := testModel()
+	m.width = 100
+	view := m.View()
+	if view == "" {
+		t.Fatal("View returned empty string in 2-pane layout")
+	}
+}
+
+func TestViewOnePaneLayout(t *testing.T) {
+	m := testModel()
+	m.width = 60
+	view := m.View()
+	if view == "" {
+		t.Fatal("View returned empty string in 1-pane layout")
+	}
+}
+
+func TestViewTwoPaneDetailFocused(t *testing.T) {
+	m := testModel()
+	m.width = 100
+	m.focus = PaneDetail
+	view := m.View()
+	if view == "" {
+		t.Fatal("View returned empty string in 2-pane detail focus")
+	}
+}
+
+func TestViewOnePaneAllFocusStates(t *testing.T) {
+	m := testModel()
+	m.width = 60
+
+	for _, pane := range []Pane{PaneRepos, PanePipelines, PaneDetail} {
+		m.focus = pane
+		view := m.View()
+		if view == "" {
+			t.Fatalf("View returned empty string with focus=%d in 1-pane layout", pane)
+		}
+	}
+}
+
+func TestPipelinesLoadedMsg(t *testing.T) {
+	m := New()
+	m.width = 120
+	m.height = 24
+
+	rows := []PipelineRow{
+		{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "a/b", Status: pipeline.StatusPassed}},
+		{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "20", Project: "c/d", Status: pipeline.StatusRunning}},
+	}
+
+	result, _ := m.Update(PipelinesLoadedMsg{Pipelines: rows})
+	m = result.(Model)
+
+	if m.loading {
+		t.Error("should not be loading after PipelinesLoadedMsg")
+	}
+	if len(m.repos) != 2 {
+		t.Errorf("expected 2 repos, got %d", len(m.repos))
+	}
+	if len(m.filtered) == 0 {
+		t.Error("filtered should not be empty")
+	}
+	if m.detail == nil {
+		t.Error("detail should be set after loading pipelines")
+	}
+}
+
+func TestPipelinesLoadedMsgWithError(t *testing.T) {
+	m := New()
+	m.width = 120
+	m.height = 24
+
+	result, _ := m.Update(PipelinesLoadedMsg{Err: errors.New("network error")})
+	m = result.(Model)
+
+	if m.loading {
+		t.Error("should not be loading after error")
+	}
+	if m.err == nil {
+		t.Error("err should be set")
+	}
+}
+
+func TestWindowSizeMsg(t *testing.T) {
+	m := New()
+	result, _ := m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
+	m = result.(Model)
+
+	if m.width != 200 {
+		t.Errorf("width = %d, want 200", m.width)
+	}
+	if m.height != 50 {
+		t.Errorf("height = %d, want 50", m.height)
+	}
+}
+
+func TestFilterPipelines(t *testing.T) {
+	m := Model{
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", Project: "a/b"}},
+			{Pipeline: pipeline.Pipeline{ID: "2", Project: "c/d"}},
+			{Pipeline: pipeline.Pipeline{ID: "3", Project: "a/b"}},
+		},
+		selectedRepo: "a/b",
+	}
+	m.filterPipelines()
+
+	if len(m.filtered) != 2 {
+		t.Fatalf("expected 2 filtered pipelines, got %d", len(m.filtered))
+	}
+	if m.filtered[0].Pipeline.ID != "1" || m.filtered[1].Pipeline.ID != "3" {
+		t.Error("filtered pipelines have wrong IDs")
+	}
+}
+
+func TestStatusIcons(t *testing.T) {
+	statuses := []pipeline.Status{
+		pipeline.StatusPassed,
+		pipeline.StatusFailed,
+		pipeline.StatusRunning,
+		pipeline.StatusPending,
+		pipeline.StatusCanceled,
+		pipeline.StatusSkipped,
+	}
+	for _, s := range statuses {
+		if statusIcon(s) == "" {
+			t.Errorf("statusIcon(%v) returned empty", s)
+		}
+		if statusIconCompact(s) == "" {
+			t.Errorf("statusIconCompact(%v) returned empty", s)
+		}
+		if statusIconRaw(s) == "" {
+			t.Errorf("statusIconRaw(%v) returned empty", s)
+		}
+	}
+}
+
+func TestRenderPipelineItemWidths(t *testing.T) {
+	row := PipelineRow{
+		Pipeline: pipeline.Pipeline{
+			ID:        "1",
+			ProjectID: "10",
+			Project:   "group/project",
+			SHA:       "abc123def456",
+			Ref:       "main",
+			Status:    pipeline.StatusPassed,
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	for _, width := range []int{40, 60, 80, 120} {
+		got := renderPipelineItem(row, width, false)
+		if got == "" {
+			t.Errorf("renderPipelineItem(width=%d, selected=false) returned empty", width)
+		}
+		got = renderPipelineItem(row, width, true)
+		if got == "" {
+			t.Errorf("renderPipelineItem(width=%d, selected=true) returned empty", width)
+		}
+	}
+}
+
+func TestEscFromDetail(t *testing.T) {
+	m := testModel()
+	m.focus = PaneDetail
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = result.(Model)
+
+	if m.focus != PanePipelines {
+		t.Errorf("focus = %d after Esc, want PanePipelines", m.focus)
+	}
+}
+
+func TestEnterFromRepos(t *testing.T) {
+	m := testModel()
+	m.focus = PaneRepos
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = result.(Model)
+
+	if m.focus != PanePipelines {
+		t.Errorf("focus = %d after Enter in repos, want PanePipelines", m.focus)
+	}
+}
+
+func TestRefreshKey(t *testing.T) {
+	m := testModel()
+	called := false
+	m.Refresh = func() tea.Cmd {
+		called = true
+		return nil
+	}
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'r'}})
+	m = result.(Model)
+
+	if !called {
+		t.Error("Refresh callback was not called")
+	}
+	if !m.loading {
+		t.Error("model should be in loading state after refresh")
+	}
+}
+
+func TestHardRefreshKey(t *testing.T) {
+	m := testModel()
+	called := false
+	m.HardRefresh = func() tea.Cmd {
+		called = true
+		return nil
+	}
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	m = result.(Model)
+
+	if !called {
+		t.Error("HardRefresh callback was not called")
+	}
+	if !m.loading {
+		t.Error("model should be in loading state after hard refresh")
+	}
+}
+
+func TestTruncateStr(t *testing.T) {
+	tests := []struct {
+		input    string
+		maxWidth int
+		fits     bool
+	}{
+		{"short", 10, true},
+		{"this is a longer string", 10, false},
+		{"exact", 5, true},
+	}
+	for _, tt := range tests {
+		got := truncateStr(tt.input, tt.maxWidth)
+		if got == "" {
+			t.Errorf("truncateStr(%q, %d) returned empty", tt.input, tt.maxWidth)
+		}
 	}
 }
