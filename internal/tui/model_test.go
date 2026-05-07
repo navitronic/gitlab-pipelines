@@ -275,3 +275,82 @@ func TestRepoShortName(t *testing.T) {
 		}
 	}
 }
+
+func TestDetailTickingPreventsStackedChains(t *testing.T) {
+	m := Model{
+		width:  120,
+		height: 24,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "a/b", Status: pipeline.StatusRunning}},
+		},
+		selectedRepo: "a/b",
+	}
+	m.deriveRepos()
+	m, _ = m.selectPipeline()
+
+	activeJobs := []pipeline.Job{
+		{ID: "1", Name: "build", Status: pipeline.StatusRunning, Stage: "build"},
+	}
+
+	result, cmd := m.Update(JobsLoadedMsg{Jobs: activeJobs})
+	m = result.(Model)
+	if !m.detailTicking {
+		t.Fatal("detailTicking should be true after first JobsLoadedMsg with active jobs")
+	}
+	if cmd == nil {
+		t.Fatal("expected a tick cmd from first JobsLoadedMsg")
+	}
+
+	result, cmd = m.Update(JobsLoadedMsg{Jobs: activeJobs})
+	m = result.(Model)
+	if cmd != nil {
+		t.Fatal("second JobsLoadedMsg should not spawn another tick chain")
+	}
+	if !m.detailTicking {
+		t.Fatal("detailTicking should remain true")
+	}
+}
+
+func TestDetailTickingClearsWhenNoActiveJobs(t *testing.T) {
+	m := Model{
+		width:         120,
+		height:        24,
+		detailTicking: true,
+		detail: NewDetailModel(PipelineRow{
+			Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "a/b", Status: pipeline.StatusPassed},
+		}),
+	}
+	m.detail.SetJobs([]pipeline.Job{
+		{ID: "1", Name: "build", Status: pipeline.StatusPassed, Stage: "build"},
+	}, nil)
+
+	result, cmd := m.Update(detailTickMsg{})
+	m = result.(Model)
+	if m.detailTicking {
+		t.Fatal("detailTicking should be false when no active jobs")
+	}
+	if cmd != nil {
+		t.Fatal("should not schedule another tick when no active jobs")
+	}
+}
+
+func TestDetailTickingResetsOnPipelineChange(t *testing.T) {
+	m := Model{
+		width:  120,
+		height: 24,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "a/b", Status: pipeline.StatusRunning}},
+			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "10", Project: "a/b", Status: pipeline.StatusPassed}},
+		},
+		selectedRepo:  "a/b",
+		detailTicking: true,
+	}
+	m.deriveRepos()
+	m.selectedID = "1"
+	m.cursor = 1
+
+	m, _ = m.selectPipeline()
+	if m.detailTicking {
+		t.Fatal("detailTicking should reset when selecting a new pipeline")
+	}
+}
