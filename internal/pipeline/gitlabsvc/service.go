@@ -15,11 +15,25 @@ import (
 	"github.com/navitronic/gitlab-builds/internal/pipeline"
 )
 
+type GitLabClient interface {
+	CurrentUser(ctx context.Context) (*gitlab.User, error)
+	FetchUserEventsSince(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
+	FetchProject(ctx context.Context, projectID int) (*gitlab.Project, error)
+	FetchPipelinesByUser(ctx context.Context, projectID int, userID int, updatedAfter time.Time) ([]gitlab.Pipeline, error)
+	FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
+	FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
+	FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
+}
+
 type Service struct {
-	client *glab.Client
+	client GitLabClient
 }
 
 func New(client *glab.Client) *Service {
+	return &Service{client: client}
+}
+
+func NewWithClient(client GitLabClient) *Service {
 	return &Service{client: client}
 }
 
@@ -37,16 +51,16 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 
 	progress("fetching activity...")
 	since := store.SinceTime()
-	disc := discovery.New(s.client)
-	events, repos, err := disc.DiscoverSince(ctx, user.ID, since)
+	events, err := s.client.FetchUserEventsSince(ctx, user.ID, since)
 	if err != nil {
-		return nil, wrapErr(err)
+		return nil, wrapErr(fmt.Errorf("discovering activity: %w", err))
 	}
+
+	repos := discovery.ExtractActiveRepos(events)
 
 	store.Merge(events)
 	_ = store.Save()
 
-	// Re-derive repos from the full cached window (not just this fetch).
 	repos = discovery.ExtractActiveRepos(store.Events)
 
 	pathCache := make(map[int]string)
