@@ -23,6 +23,7 @@ type GitLabClient interface {
 	FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
 	FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
+	FetchUserMergeRequests(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
 }
 
 type Service struct {
@@ -62,6 +63,12 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 	_ = store.Save()
 
 	repos = discovery.ExtractActiveRepos(store.Events)
+
+	progress("fetching merge requests...")
+	mrs, err := s.client.FetchUserMergeRequests(ctx, time.Now().Add(-24*time.Hour))
+	if err == nil {
+		repos = mergeReposFromMRs(repos, mrs)
+	}
 
 	pathCache := make(map[int]string)
 	for _, r := range repos {
@@ -198,14 +205,15 @@ func convertPipeline(p gitlab.Pipeline, projectID int, project string) pipeline.
 
 func convertJob(j gitlab.Job) pipeline.Job {
 	return pipeline.Job{
-		ID:        strconv.Itoa(j.ID),
-		Name:      j.Name,
-		Stage:     j.Stage,
-		Status:    convertStatus(j.Status),
-		WebURL:    j.WebURL,
-		CreatedAt: j.CreatedAt,
-		StartedAt: j.StartedAt,
-		Duration:  time.Duration(j.Duration * float64(time.Second)),
+		ID:           strconv.Itoa(j.ID),
+		Name:         j.Name,
+		Stage:        j.Stage,
+		Status:       convertStatus(j.Status),
+		AllowFailure: j.AllowFailure,
+		WebURL:       j.WebURL,
+		CreatedAt:    j.CreatedAt,
+		StartedAt:    j.StartedAt,
+		Duration:     time.Duration(j.Duration * float64(time.Second)),
 	}
 }
 
@@ -226,6 +234,27 @@ func convertStatus(s string) pipeline.Status {
 	default:
 		return pipeline.StatusPending
 	}
+}
+
+func mergeReposFromMRs(repos []discovery.ActiveRepo, mrs []gitlab.MergeRequest) []discovery.ActiveRepo {
+	seen := make(map[int]struct{}, len(repos))
+	for _, r := range repos {
+		seen[r.ProjectID] = struct{}{}
+	}
+	for _, mr := range mrs {
+		if mr.ProjectID == 0 {
+			continue
+		}
+		if _, ok := seen[mr.ProjectID]; ok {
+			continue
+		}
+		seen[mr.ProjectID] = struct{}{}
+		repos = append(repos, discovery.ActiveRepo{
+			ProjectID:  mr.ProjectID,
+			LastActive: mr.UpdatedAt,
+		})
+	}
+	return repos
 }
 
 func wrapErr(err error) error {

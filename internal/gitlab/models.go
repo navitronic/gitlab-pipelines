@@ -28,20 +28,23 @@ type Pipeline struct {
 
 // Job represents a job within a pipeline.
 type Job struct {
-	ID        int       `json:"id"`
-	Name      string    `json:"name"`
-	Stage     string    `json:"stage"`
-	Status    string    `json:"status"`
-	WebURL    string    `json:"web_url"`
-	CreatedAt time.Time `json:"created_at"`
-	StartedAt time.Time `json:"started_at"`
-	Duration  float64   `json:"duration"`
+	ID           int       `json:"id"`
+	Name         string    `json:"name"`
+	Stage        string    `json:"stage"`
+	Status       string    `json:"status"`
+	AllowFailure bool      `json:"allow_failure"`
+	WebURL       string    `json:"web_url"`
+	CreatedAt    time.Time `json:"created_at"`
+	StartedAt    time.Time `json:"started_at"`
+	Duration     float64   `json:"duration"`
 }
 
 // MergeRequest represents a GitLab merge request.
 type MergeRequest struct {
-	IID    int    `json:"iid"`
-	WebURL string `json:"web_url"`
-	State  string `json:"state"`
-	Title  string `json:"title"`
+	IID       int       `json:"iid"`
+	ProjectID int       `json:"project_id"`
+	WebURL    string    `json:"web_url"`
+	State     string    `json:"state"`
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updated_at"`
 }

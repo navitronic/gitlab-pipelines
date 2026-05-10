@@ -60,6 +60,48 @@ func (c *Client) FetchPipelineJobs(ctx context.Context, projectID int, pipelineI
 	return allJobs, nil
 }
 
+// FetchUserMergeRequests fetches merge requests authored by the user that are
+// either currently open (any age) or merged after the given time.
+func (c *Client) FetchUserMergeRequests(ctx context.Context, mergedAfter time.Time) ([]gitlab.MergeRequest, error) {
+	openEndpoint := "merge_requests?scope=created_by_me&state=opened&per_page=100&order_by=updated_at&sort=desc"
+	openMRs, err := c.fetchMergeRequestsPaginated(ctx, openEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("fetching opened merge requests: %w", err)
+	}
+
+	mergedEndpoint := fmt.Sprintf("merge_requests?scope=created_by_me&state=merged&updated_after=%s&per_page=100&order_by=updated_at&sort=desc",
+		url.QueryEscape(mergedAfter.Format(time.RFC3339)))
+	mergedMRs, err := c.fetchMergeRequestsPaginated(ctx, mergedEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("fetching merged merge requests: %w", err)
+	}
+
+	return append(openMRs, mergedMRs...), nil
+}
+
+func (c *Client) fetchMergeRequestsPaginated(ctx context.Context, baseEndpoint string) ([]gitlab.MergeRequest, error) {
+	const perPage = 100
+	var all []gitlab.MergeRequest
+	for page := 1; ; page++ {
+		endpoint := baseEndpoint + "&page=" + strconv.Itoa(page)
+		out, err := c.Run(ctx, "api", endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("fetching merge requests (page %d): %w", page, err)
+		}
+
+		var mrs []gitlab.MergeRequest
+		if err := json.Unmarshal(out, &mrs); err != nil {
+			return nil, fmt.Errorf("parsing merge requests response (page %d): %w", page, err)
+		}
+
+		all = append(all, mrs...)
+		if len(mrs) < perPage {
+			break
+		}
+	}
+	return all, nil
+}
+
 func (c *Client) FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error) {
 	endpoint := fmt.Sprintf("projects/%d/merge_requests?source_branch=%s&state=all&order_by=updated_at&sort=desc&per_page=1", projectID, url.QueryEscape(branch))
 	out, err := c.Run(ctx, "api", endpoint)

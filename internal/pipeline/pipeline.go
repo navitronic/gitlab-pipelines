@@ -57,14 +57,15 @@ type Pipeline struct {
 }
 
 type Job struct {
-	ID        string
-	Name      string
-	Stage     string
-	Status    Status
-	WebURL    string
-	CreatedAt time.Time
-	StartedAt time.Time
-	Duration  time.Duration
+	ID           string
+	Name         string
+	Stage        string
+	Status       Status
+	AllowFailure bool
+	WebURL       string
+	CreatedAt    time.Time
+	StartedAt    time.Time
+	Duration     time.Duration
 }
 
 type Service interface {
