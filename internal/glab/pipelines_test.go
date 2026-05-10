@@ -160,6 +160,43 @@ func TestFetchMergeRequestByBranch_RunError(t *testing.T) {
 	}
 }
 
+func TestFetchUserMergeRequests(t *testing.T) {
+	dir := t.TempDir()
+	response := `[{"iid":1,"project_id":42,"web_url":"https://gitlab.com/mr/1","state":"opened","title":"Feature"}]`
+	script := fakeGlabScript(t, dir, response)
+
+	c := &Client{BinaryPath: script}
+	mrs, err := c.FetchUserMergeRequests(context.Background(), time.Now().Add(-24*time.Hour))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mrs) != 2 {
+		t.Fatalf("expected 2 MRs (1 opened + 1 merged from same script), got %d", len(mrs))
+	}
+	if mrs[0].ProjectID != 42 {
+		t.Errorf("ProjectID = %d, want 42", mrs[0].ProjectID)
+	}
+}
+
+func TestFetchUserMergeRequests_RunError(t *testing.T) {
+	c := &Client{BinaryPath: "/nonexistent/glab"}
+	_, err := c.FetchUserMergeRequests(context.Background(), time.Now().Add(-24*time.Hour))
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestFetchUserMergeRequests_ParseError(t *testing.T) {
+	dir := t.TempDir()
+	script := fakeGlabScript(t, dir, "not json")
+
+	c := &Client{BinaryPath: script}
+	_, err := c.FetchUserMergeRequests(context.Background(), time.Now().Add(-24*time.Hour))
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+}
+
 func TestFetchPipelinesByUser_NoUserID(t *testing.T) {
 	dir := t.TempDir()
 	response := `[{"id":1,"status":"running"}]`

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/navitronic/gitlab-builds/internal/discovery"
 	"github.com/navitronic/gitlab-builds/internal/gitlab"
 	"github.com/navitronic/gitlab-builds/internal/glab"
 	"github.com/navitronic/gitlab-builds/internal/pipeline"
@@ -21,6 +22,7 @@ type mockClient struct {
 	fetchPipeline            func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	fetchPipelineJobs        func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
 	fetchMergeRequestByBranch func(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
+	fetchUserMergeRequests   func(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
 }
 
 func (m *mockClient) CurrentUser(ctx context.Context) (*gitlab.User, error) {
@@ -43,6 +45,12 @@ func (m *mockClient) FetchPipelineJobs(ctx context.Context, projectID int, pipel
 }
 func (m *mockClient) FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error) {
 	return m.fetchMergeRequestByBranch(ctx, projectID, branch)
+}
+func (m *mockClient) FetchUserMergeRequests(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error) {
+	if m.fetchUserMergeRequests != nil {
+		return m.fetchUserMergeRequests(ctx, updatedAfter)
+	}
+	return nil, nil
 }
 
 func TestGetPipeline(t *testing.T) {
@@ -379,6 +387,160 @@ func TestListPipelines_FetchProjectError(t *testing.T) {
 }
 
 
+
+func TestListPipelines_IncludesMRProjects(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+
+	now := time.Now()
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "test"}, nil
+		},
+		fetchUserEventsSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Event, error) {
+			return []gitlab.Event{
+				{ID: 1, ActionName: "pushed to", ProjectID: 42, CreatedAt: now.Add(-1 * time.Hour), PushData: &gitlab.PushData{CommitCount: 1, Ref: "main", RefType: "branch", CommitTo: "abc"}},
+			}, nil
+		},
+		fetchUserMergeRequests: func(_ context.Context, _ time.Time) ([]gitlab.MergeRequest, error) {
+			return []gitlab.MergeRequest{
+				{IID: 10, ProjectID: 99, State: "opened", Title: "New feature", UpdatedAt: now},
+			}, nil
+		},
+		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: projectID, PathWithNamespace: fmt.Sprintf("group/project-%d", projectID)}, nil
+		},
+		fetchPipelinesByUser: func(_ context.Context, projectID int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+			return []gitlab.Pipeline{
+				{ID: projectID * 10, Status: "success", UpdatedAt: now},
+			}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	pipelines, err := svc.ListPipelines(context.Background(), func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pipelines) != 2 {
+		t.Fatalf("expected 2 pipelines, got %d", len(pipelines))
+	}
+	projectIDs := map[string]bool{}
+	for _, p := range pipelines {
+		projectIDs[p.ProjectID] = true
+	}
+	if !projectIDs["42"] {
+		t.Error("expected pipelines from event-discovered project 42")
+	}
+	if !projectIDs["99"] {
+		t.Error("expected pipelines from MR-discovered project 99")
+	}
+}
+
+func TestListPipelines_MRProjectDeduped(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+
+	now := time.Now()
+	pipelineFetchCount := 0
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "test"}, nil
+		},
+		fetchUserEventsSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Event, error) {
+			return []gitlab.Event{
+				{ID: 1, ActionName: "pushed to", ProjectID: 42, CreatedAt: now.Add(-1 * time.Hour), PushData: &gitlab.PushData{CommitCount: 1, Ref: "main", RefType: "branch", CommitTo: "abc"}},
+			}, nil
+		},
+		fetchUserMergeRequests: func(_ context.Context, _ time.Time) ([]gitlab.MergeRequest, error) {
+			return []gitlab.MergeRequest{
+				{IID: 10, ProjectID: 42, State: "opened", Title: "Same project", UpdatedAt: now},
+			}, nil
+		},
+		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
+		},
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+			pipelineFetchCount++
+			return []gitlab.Pipeline{{ID: 100, Status: "success", UpdatedAt: now}}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	pipelines, err := svc.ListPipelines(context.Background(), func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline (deduped), got %d", len(pipelines))
+	}
+	if pipelineFetchCount != 1 {
+		t.Errorf("expected 1 pipeline fetch (deduped), got %d", pipelineFetchCount)
+	}
+}
+
+func TestListPipelines_MRFetchErrorNonFatal(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+
+	now := time.Now()
+	mc := &mockClient{
+		currentUser: func(_ context.Context) (*gitlab.User, error) {
+			return &gitlab.User{ID: 1, Username: "test"}, nil
+		},
+		fetchUserEventsSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Event, error) {
+			return []gitlab.Event{
+				{ID: 1, ActionName: "pushed to", ProjectID: 42, CreatedAt: now.Add(-1 * time.Hour), PushData: &gitlab.PushData{CommitCount: 1, Ref: "main", RefType: "branch", CommitTo: "abc"}},
+			}, nil
+		},
+		fetchUserMergeRequests: func(_ context.Context, _ time.Time) ([]gitlab.MergeRequest, error) {
+			return nil, fmt.Errorf("network error")
+		},
+		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
+		},
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+			return []gitlab.Pipeline{{ID: 100, Status: "success", UpdatedAt: now}}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	pipelines, err := svc.ListPipelines(context.Background(), func(string) {})
+	if err != nil {
+		t.Fatalf("MR fetch error should be non-fatal, got: %v", err)
+	}
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline from events, got %d", len(pipelines))
+	}
+}
+
+func TestMergeReposFromMRs(t *testing.T) {
+	now := time.Now()
+	repos := []discovery.ActiveRepo{
+		{ProjectID: 10, LastActive: now},
+	}
+	mrs := []gitlab.MergeRequest{
+		{IID: 1, ProjectID: 10, State: "opened", UpdatedAt: now},
+		{IID: 2, ProjectID: 20, State: "merged", UpdatedAt: now},
+		{IID: 3, ProjectID: 0, State: "opened", UpdatedAt: now},
+		{IID: 4, ProjectID: 30, State: "opened", UpdatedAt: now},
+	}
+
+	result := mergeReposFromMRs(repos, mrs)
+	if len(result) != 3 {
+		t.Fatalf("expected 3 repos, got %d", len(result))
+	}
+	ids := map[int]bool{}
+	for _, r := range result {
+		ids[r.ProjectID] = true
+	}
+	if !ids[10] || !ids[20] || !ids[30] {
+		t.Errorf("expected projects 10, 20, 30; got %v", ids)
+	}
+}
 
 func TestConvertStatus(t *testing.T) {
 	tests := []struct {

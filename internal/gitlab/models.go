@@ -41,8 +41,10 @@ type Job struct {
 
 // MergeRequest represents a GitLab merge request.
 type MergeRequest struct {
-	IID    int    `json:"iid"`
-	WebURL string `json:"web_url"`
-	State  string `json:"state"`
-	Title  string `json:"title"`
+	IID       int       `json:"iid"`
+	ProjectID int       `json:"project_id"`
+	WebURL    string    `json:"web_url"`
+	State     string    `json:"state"`
+	Title     string    `json:"title"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
