@@ -61,20 +61,22 @@ func (c *Client) FetchPipelineJobs(ctx context.Context, projectID int, pipelineI
 }
 
 // FetchUserMergeRequests fetches merge requests authored by the user that are
-// either currently open or were updated after the given time.
-// It makes two calls: one for open MRs and one for recently merged MRs.
-func (c *Client) FetchUserMergeRequests(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error) {
-	var all []gitlab.MergeRequest
-	for _, state := range []string{"opened", "merged"} {
-		endpoint := fmt.Sprintf("merge_requests?scope=created_by_me&state=%s&updated_after=%s&per_page=100&order_by=updated_at&sort=desc",
-			state, url.QueryEscape(updatedAfter.Format(time.RFC3339)))
-		mrs, err := c.fetchMergeRequestsPaginated(ctx, endpoint)
-		if err != nil {
-			return nil, fmt.Errorf("fetching %s merge requests: %w", state, err)
-		}
-		all = append(all, mrs...)
+// either currently open (any age) or merged after the given time.
+func (c *Client) FetchUserMergeRequests(ctx context.Context, mergedAfter time.Time) ([]gitlab.MergeRequest, error) {
+	openEndpoint := "merge_requests?scope=created_by_me&state=opened&per_page=100&order_by=updated_at&sort=desc"
+	openMRs, err := c.fetchMergeRequestsPaginated(ctx, openEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("fetching opened merge requests: %w", err)
 	}
-	return all, nil
+
+	mergedEndpoint := fmt.Sprintf("merge_requests?scope=created_by_me&state=merged&updated_after=%s&per_page=100&order_by=updated_at&sort=desc",
+		url.QueryEscape(mergedAfter.Format(time.RFC3339)))
+	mergedMRs, err := c.fetchMergeRequestsPaginated(ctx, mergedEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("fetching merged merge requests: %w", err)
+	}
+
+	return append(openMRs, mergedMRs...), nil
 }
 
 func (c *Client) fetchMergeRequestsPaginated(ctx context.Context, baseEndpoint string) ([]gitlab.MergeRequest, error) {
