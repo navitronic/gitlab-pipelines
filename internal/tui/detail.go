@@ -145,7 +145,7 @@ func (d *DetailModel) renderJobs() string {
 	for _, stage := range stageOrder {
 		b.WriteString(fmt.Sprintf("  %s\n", stageStyle.Render(stage)))
 		for _, job := range stageJobs[stage] {
-			icon := jobStatusIcon(job.Status)
+			icon := jobStatusIcon(job)
 			name := job.Name
 			dur := jobDuration(job)
 			if job.Status == pipeline.StatusRunning {
@@ -158,8 +158,11 @@ func (d *DetailModel) renderJobs() string {
 	return b.String()
 }
 
-func jobStatusIcon(status pipeline.Status) string {
-	switch status {
+func jobStatusIcon(job pipeline.Job) string {
+	if job.Status == pipeline.StatusFailed && job.AllowFailure {
+		return warningStyle.Render("⚠")
+	}
+	switch job.Status {
 	case pipeline.StatusPassed:
 		return successStyle.Render("✓")
 	case pipeline.StatusFailed:

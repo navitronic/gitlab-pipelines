@@ -198,14 +198,15 @@ func convertPipeline(p gitlab.Pipeline, projectID int, project string) pipeline.
 
 func convertJob(j gitlab.Job) pipeline.Job {
 	return pipeline.Job{
-		ID:        strconv.Itoa(j.ID),
-		Name:      j.Name,
-		Stage:     j.Stage,
-		Status:    convertStatus(j.Status),
-		WebURL:    j.WebURL,
-		CreatedAt: j.CreatedAt,
-		StartedAt: j.StartedAt,
-		Duration:  time.Duration(j.Duration * float64(time.Second)),
+		ID:           strconv.Itoa(j.ID),
+		Name:         j.Name,
+		Stage:        j.Stage,
+		Status:       convertStatus(j.Status),
+		AllowFailure: j.AllowFailure,
+		WebURL:       j.WebURL,
+		CreatedAt:    j.CreatedAt,
+		StartedAt:    j.StartedAt,
+		Duration:     time.Duration(j.Duration * float64(time.Second)),
 	}
 }
 

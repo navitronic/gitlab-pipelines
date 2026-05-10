@@ -41,6 +41,7 @@ var (
 	failedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 	runningStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("33"))
 	pendingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	warningStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	canceledStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	skippedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
