@@ -134,7 +134,7 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 		return nil, fmt.Errorf("fetching pipelines: %w", lastErr)
 	}
 	sort.Slice(all, func(i, j int) bool {
-		return all[i].UpdatedAt.After(all[j].UpdatedAt)
+		return all[i].CreatedAt.After(all[j].CreatedAt)
 	})
 	return all, nil
 }

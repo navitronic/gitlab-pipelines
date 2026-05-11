@@ -12,9 +12,9 @@ import (
 )
 
 // FetchPipelinesByUser fetches recent pipelines for a project belonging to a user,
-// ordered by most recently updated.
+// ordered by most recently created.
 func (c *Client) FetchPipelinesByUser(ctx context.Context, projectID int, userID int, updatedAfter time.Time) ([]gitlab.Pipeline, error) {
-	endpoint := fmt.Sprintf("projects/%d/pipelines?order_by=updated_at&sort=desc&per_page=20&updated_after=%s",
+	endpoint := fmt.Sprintf("projects/%d/pipelines?order_by=id&sort=desc&per_page=20&updated_after=%s",
 		projectID, url.QueryEscape(updatedAfter.Format(time.RFC3339)))
 	if userID > 0 {
 		endpoint += "&user_id=" + strconv.Itoa(userID)

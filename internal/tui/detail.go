@@ -64,6 +64,7 @@ func (d *DetailModel) Render(width, height int) string {
 		b.WriteString(fmt.Sprintf("  MR:       %s\n", d.mrURL))
 	}
 	b.WriteString(fmt.Sprintf("  Source:   %s\n", p.Source))
+	b.WriteString(fmt.Sprintf("  Created:  %s\n", formatTime(p.CreatedAt)))
 	b.WriteString(fmt.Sprintf("  Updated:  %s\n", formatTime(p.UpdatedAt)))
 	b.WriteString(fmt.Sprintf("  Duration: %s\n", pipelineDuration(p)))
 	if p.WebURL != "" {
