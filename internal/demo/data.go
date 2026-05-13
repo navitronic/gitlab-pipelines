@@ -3,7 +3,7 @@ package demo
 import (
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/pipeline"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
 )
 
 // Pipelines returns a fixed set of demo pipelines across multiple projects.

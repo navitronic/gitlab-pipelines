@@ -1,4 +1,4 @@
-module github.com/navitronic/gitlab-builds
+module github.com/navitronic/gitlab-pipelines
 
 go 1.24.2
 

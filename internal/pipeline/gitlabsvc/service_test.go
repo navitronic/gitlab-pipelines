@@ -8,21 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/discovery"
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
-	"github.com/navitronic/gitlab-builds/internal/glab"
-	"github.com/navitronic/gitlab-builds/internal/pipeline"
+	"github.com/navitronic/gitlab-pipelines/internal/discovery"
+	"github.com/navitronic/gitlab-pipelines/internal/gitlab"
+	"github.com/navitronic/gitlab-pipelines/internal/glab"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
 )
 
 type mockClient struct {
-	currentUser              func(ctx context.Context) (*gitlab.User, error)
-	fetchUserEventsSince     func(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
-	fetchProject             func(ctx context.Context, projectID int) (*gitlab.Project, error)
-	fetchPipelinesByUser     func(ctx context.Context, projectID int, userID int, updatedAfter time.Time) ([]gitlab.Pipeline, error)
-	fetchPipeline            func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
-	fetchPipelineJobs        func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
+	currentUser               func(ctx context.Context) (*gitlab.User, error)
+	fetchUserEventsSince      func(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
+	fetchProject              func(ctx context.Context, projectID int) (*gitlab.Project, error)
+	fetchPipelinesByUser      func(ctx context.Context, projectID int, userID int, updatedAfter time.Time) ([]gitlab.Pipeline, error)
+	fetchPipeline             func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
+	fetchPipelineJobs         func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
 	fetchMergeRequestByBranch func(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
-	fetchUserMergeRequests   func(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
+	fetchUserMergeRequests    func(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
 }
 
 func (m *mockClient) CurrentUser(ctx context.Context) (*gitlab.User, error) {
@@ -385,8 +385,6 @@ func TestListPipelines_FetchProjectError(t *testing.T) {
 		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
 	}
 }
-
-
 
 func TestListPipelines_IncludesMRProjects(t *testing.T) {
 	tmp := t.TempDir()

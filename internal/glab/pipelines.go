@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
+	"github.com/navitronic/gitlab-pipelines/internal/gitlab"
 )
 
 // FetchPipelinesByUser fetches recent pipelines for a project belonging to a user,

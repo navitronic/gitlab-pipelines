@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/activity"
-	"github.com/navitronic/gitlab-builds/internal/discovery"
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
-	"github.com/navitronic/gitlab-builds/internal/glab"
-	"github.com/navitronic/gitlab-builds/internal/pipeline"
+	"github.com/navitronic/gitlab-pipelines/internal/activity"
+	"github.com/navitronic/gitlab-pipelines/internal/discovery"
+	"github.com/navitronic/gitlab-pipelines/internal/gitlab"
+	"github.com/navitronic/gitlab-pipelines/internal/glab"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
 )
 
 type GitLabClient interface {
