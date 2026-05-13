@@ -16,7 +16,7 @@ All GitLab communication goes through the [`glab`](https://gitlab.com/gitlab-org
 ## Install
 
 ```
-go install github.com/navitronic/gitlab-builds/cmd/gitlab-pipelines@latest
+go install github.com/navitronic/gitlab-pipelines/cmd/gitlab-pipelines@latest
 ```
 
 Or build from source:
