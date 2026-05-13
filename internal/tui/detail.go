@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/pipeline"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
 )
 
 type MRLoadedMsg struct {

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/navitronic/gitlab-builds/internal/pipeline"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
 )
 
 func TestShortSHA(t *testing.T) {

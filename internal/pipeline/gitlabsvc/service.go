@@ -8,18 +8,18 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/activity"
-	"github.com/navitronic/gitlab-builds/internal/discovery"
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
-	"github.com/navitronic/gitlab-builds/internal/glab"
-	"github.com/navitronic/gitlab-builds/internal/pipeline"
+	"github.com/navitronic/gitlab-pipelines/internal/activity"
+	"github.com/navitronic/gitlab-pipelines/internal/discovery"
+	"github.com/navitronic/gitlab-pipelines/internal/gitlab"
+	"github.com/navitronic/gitlab-pipelines/internal/glab"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
 )
 
 type GitLabClient interface {
 	CurrentUser(ctx context.Context) (*gitlab.User, error)
 	FetchUserEventsSince(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
 	FetchProject(ctx context.Context, projectID int) (*gitlab.Project, error)
-	FetchPipelinesByUser(ctx context.Context, projectID int, userID int, updatedAfter time.Time) ([]gitlab.Pipeline, error)
+	FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
 	FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
 	FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
@@ -107,7 +107,7 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 
 	for _, r := range repos {
 		go func(r discovery.ActiveRepo) {
-			pipelines, err := s.client.FetchPipelinesByUser(ctx, r.ProjectID, user.ID, updatedAfter)
+			pipelines, err := s.client.FetchPipelinesByUser(ctx, r.ProjectID, user.Username, updatedAfter)
 			if err != nil {
 				ch <- result{err: wrapErr(err)}
 				return

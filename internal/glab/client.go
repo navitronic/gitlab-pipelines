@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
+	"github.com/navitronic/gitlab-pipelines/internal/gitlab"
 )
 
 // ErrGlabNotFound indicates the glab binary is not installed or not in PATH.

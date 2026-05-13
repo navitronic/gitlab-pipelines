@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
-	"github.com/navitronic/gitlab-builds/internal/glab"
+	"github.com/navitronic/gitlab-pipelines/internal/gitlab"
+	"github.com/navitronic/gitlab-pipelines/internal/glab"
 )
 
 // Discoverer finds active repositories from user activity.

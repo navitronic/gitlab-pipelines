@@ -8,21 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/discovery"
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
-	"github.com/navitronic/gitlab-builds/internal/glab"
-	"github.com/navitronic/gitlab-builds/internal/pipeline"
+	"github.com/navitronic/gitlab-pipelines/internal/discovery"
+	"github.com/navitronic/gitlab-pipelines/internal/gitlab"
+	"github.com/navitronic/gitlab-pipelines/internal/glab"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
 )
 
 type mockClient struct {
-	currentUser              func(ctx context.Context) (*gitlab.User, error)
-	fetchUserEventsSince     func(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
-	fetchProject             func(ctx context.Context, projectID int) (*gitlab.Project, error)
-	fetchPipelinesByUser     func(ctx context.Context, projectID int, userID int, updatedAfter time.Time) ([]gitlab.Pipeline, error)
-	fetchPipeline            func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
-	fetchPipelineJobs        func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
+	currentUser               func(ctx context.Context) (*gitlab.User, error)
+	fetchUserEventsSince      func(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
+	fetchProject              func(ctx context.Context, projectID int) (*gitlab.Project, error)
+	fetchPipelinesByUser      func(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
+	fetchPipeline             func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
+	fetchPipelineJobs         func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
 	fetchMergeRequestByBranch func(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
-	fetchUserMergeRequests   func(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
+	fetchUserMergeRequests    func(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
 }
 
 func (m *mockClient) CurrentUser(ctx context.Context) (*gitlab.User, error) {
@@ -34,8 +34,8 @@ func (m *mockClient) FetchUserEventsSince(ctx context.Context, userID int, after
 func (m *mockClient) FetchProject(ctx context.Context, projectID int) (*gitlab.Project, error) {
 	return m.fetchProject(ctx, projectID)
 }
-func (m *mockClient) FetchPipelinesByUser(ctx context.Context, projectID int, userID int, updatedAfter time.Time) ([]gitlab.Pipeline, error) {
-	return m.fetchPipelinesByUser(ctx, projectID, userID, updatedAfter)
+func (m *mockClient) FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error) {
+	return m.fetchPipelinesByUser(ctx, projectID, username, updatedAfter)
 }
 func (m *mockClient) FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error) {
 	return m.fetchPipeline(ctx, projectID, pipelineID)
@@ -266,7 +266,7 @@ func TestListPipelines_Success(t *testing.T) {
 		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
 			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
 		},
-		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ string, _ time.Time) ([]gitlab.Pipeline, error) {
 			return []gitlab.Pipeline{
 				{ID: 100, Status: "success", Ref: "main", SHA: "abc", UpdatedAt: now},
 				{ID: 101, Status: "running", Ref: "feat", SHA: "def", UpdatedAt: now.Add(-5 * time.Minute)},
@@ -305,7 +305,7 @@ func TestListPipelines_PipelineFetchError(t *testing.T) {
 		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
 			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
 		},
-		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ string, _ time.Time) ([]gitlab.Pipeline, error) {
 			return nil, fmt.Errorf("network error")
 		},
 	}
@@ -337,7 +337,7 @@ func TestListPipelines_ProjectPathFromCache(t *testing.T) {
 			fetchProjectCalls++
 			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
 		},
-		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ string, _ time.Time) ([]gitlab.Pipeline, error) {
 			return []gitlab.Pipeline{{ID: 100, Status: "success", UpdatedAt: now}}, nil
 		},
 	}
@@ -371,7 +371,7 @@ func TestListPipelines_FetchProjectError(t *testing.T) {
 		fetchProject: func(_ context.Context, _ int) (*gitlab.Project, error) {
 			return nil, fmt.Errorf("not found")
 		},
-		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ string, _ time.Time) ([]gitlab.Pipeline, error) {
 			return []gitlab.Pipeline{{ID: 100, Status: "success", UpdatedAt: now}}, nil
 		},
 	}
@@ -385,8 +385,6 @@ func TestListPipelines_FetchProjectError(t *testing.T) {
 		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
 	}
 }
-
-
 
 func TestListPipelines_IncludesMRProjects(t *testing.T) {
 	tmp := t.TempDir()
@@ -411,7 +409,7 @@ func TestListPipelines_IncludesMRProjects(t *testing.T) {
 		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
 			return &gitlab.Project{ID: projectID, PathWithNamespace: fmt.Sprintf("group/project-%d", projectID)}, nil
 		},
-		fetchPipelinesByUser: func(_ context.Context, projectID int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+		fetchPipelinesByUser: func(_ context.Context, projectID int, _ string, _ time.Time) ([]gitlab.Pipeline, error) {
 			return []gitlab.Pipeline{
 				{ID: projectID * 10, Status: "success", UpdatedAt: now},
 			}, nil
@@ -462,7 +460,7 @@ func TestListPipelines_MRProjectDeduped(t *testing.T) {
 		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
 			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
 		},
-		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ string, _ time.Time) ([]gitlab.Pipeline, error) {
 			pipelineFetchCount++
 			return []gitlab.Pipeline{{ID: 100, Status: "success", UpdatedAt: now}}, nil
 		},
@@ -502,7 +500,7 @@ func TestListPipelines_MRFetchErrorNonFatal(t *testing.T) {
 		fetchProject: func(_ context.Context, projectID int) (*gitlab.Project, error) {
 			return &gitlab.Project{ID: projectID, PathWithNamespace: "group/project"}, nil
 		},
-		fetchPipelinesByUser: func(_ context.Context, _ int, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+		fetchPipelinesByUser: func(_ context.Context, _ int, _ string, _ time.Time) ([]gitlab.Pipeline, error) {
 			return []gitlab.Pipeline{{ID: 100, Status: "success", UpdatedAt: now}}, nil
 		},
 	}

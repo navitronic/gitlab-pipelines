@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/pipeline"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
 )
 
 func TestSaveAndLoad(t *testing.T) {

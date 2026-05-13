@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/navitronic/gitlab-builds/internal/gitlab"
+	"github.com/navitronic/gitlab-pipelines/internal/gitlab"
 )
 
 // FetchUserEventsSince retrieves user events after the given date.

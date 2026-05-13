@@ -8,13 +8,13 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/navitronic/gitlab-builds/internal/activity"
-	"github.com/navitronic/gitlab-builds/internal/cache"
-	"github.com/navitronic/gitlab-builds/internal/demo"
-	"github.com/navitronic/gitlab-builds/internal/glab"
-	"github.com/navitronic/gitlab-builds/internal/pipeline"
-	"github.com/navitronic/gitlab-builds/internal/pipeline/gitlabsvc"
-	"github.com/navitronic/gitlab-builds/internal/tui"
+	"github.com/navitronic/gitlab-pipelines/internal/activity"
+	"github.com/navitronic/gitlab-pipelines/internal/cache"
+	"github.com/navitronic/gitlab-pipelines/internal/demo"
+	"github.com/navitronic/gitlab-pipelines/internal/glab"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
+	"github.com/navitronic/gitlab-pipelines/internal/pipeline/gitlabsvc"
+	"github.com/navitronic/gitlab-pipelines/internal/tui"
 )
 
 func main() {
