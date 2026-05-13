@@ -1,6 +1,10 @@
 # GitLab Pipelines TUI
 
+> **Note:** This project is under active development. Features and APIs may change.
+
 A terminal UI for viewing your recent GitLab pipelines. Discovers pipelines from your activity and displays them in a navigable table with job status summaries.
+
+![Screenshot](docs/screenshot.png)
 
 All GitLab communication goes through the [`glab`](https://gitlab.com/gitlab-org/cli) CLI — no tokens or HTTP configuration required beyond `glab auth login`.
 

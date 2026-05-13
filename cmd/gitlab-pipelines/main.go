@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/navitronic/gitlab-builds/internal/activity"
 	"github.com/navitronic/gitlab-builds/internal/cache"
+	"github.com/navitronic/gitlab-builds/internal/demo"
 	"github.com/navitronic/gitlab-builds/internal/glab"
 	"github.com/navitronic/gitlab-builds/internal/pipeline"
 	"github.com/navitronic/gitlab-builds/internal/pipeline/gitlabsvc"
@@ -16,11 +18,55 @@ import (
 )
 
 func main() {
+	demoMode := flag.Bool("demo", false, "run with demo fixture data (no network, no polling)")
+	flag.Parse()
+
+	m := tui.New()
+
+	if *demoMode {
+		runDemo(m)
+	} else {
+		runLive(m)
+	}
+}
+
+func runDemo(m tui.Model) {
+	m.FetchJobs = func(_, pipelineID string) tea.Cmd {
+		return func() tea.Msg {
+			return tui.JobsLoadedMsg{Jobs: demo.Jobs(pipelineID)}
+		}
+	}
+	m.FetchPipeline = func(_, pipelineID string) tea.Cmd {
+		return func() tea.Msg {
+			for _, p := range demo.Pipelines() {
+				if p.ID == pipelineID {
+					return tui.PipelineUpdatedMsg{Pipeline: p}
+				}
+			}
+			return tui.PipelineUpdatedMsg{}
+		}
+	}
+	m.FetchMR = func(_, pipelineID, _ string) tea.Cmd {
+		return func() tea.Msg {
+			return tui.MRLoadedMsg{PipelineID: pipelineID, URL: demo.MRURLs[pipelineID]}
+		}
+	}
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	go func() {
+		p.Send(tui.PipelinesLoadedMsg{Pipelines: toRows(demo.Pipelines())})
+	}()
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runLive(m tui.Model) {
 	ctx := context.Background()
 	client := glab.New()
 	svc := gitlabsvc.New(client)
 
-	m := tui.New()
 	m.FetchJobs = func(projectID, pipelineID string) tea.Cmd {
 		return func() tea.Msg {
 			jobs, err := svc.ListJobs(ctx, projectID, pipelineID)
