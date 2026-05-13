@@ -65,6 +65,7 @@ type Model struct {
 	spinner       spinner.Model
 	pipelines     []PipelineRow
 	repos         []string
+	numRunning    int
 	repoCursor    int
 	repoOffset    int
 	selectedRepo  string
@@ -187,6 +188,7 @@ func (m *Model) deriveRepos() {
 	}
 	sort.Strings(repos)
 	m.repos = repos
+	m.numRunning = 0
 	if m.repoCursor >= len(m.repos) {
 		m.repoCursor = max(0, len(m.repos)-1)
 	}
@@ -213,6 +215,42 @@ func (m *Model) filterPipelines() {
 	if m.offset > m.cursor {
 		m.offset = m.cursor
 	}
+}
+
+func (m Model) repoRunningDuration(repo string) time.Duration {
+	var latest time.Time
+	for _, row := range m.pipelines {
+		p := row.Pipeline
+		if p.Project != repo {
+			continue
+		}
+		if p.Status != pipeline.StatusRunning && p.Status != pipeline.StatusPending {
+			continue
+		}
+		if latest.IsZero() || p.CreatedAt.After(latest) {
+			latest = p.CreatedAt
+		}
+	}
+	if latest.IsZero() {
+		return 0
+	}
+	return time.Since(latest)
+}
+
+func (m Model) repoLatestStatus(repo string) pipeline.Status {
+	var latest time.Time
+	var status pipeline.Status
+	for _, row := range m.pipelines {
+		p := row.Pipeline
+		if p.Project != repo {
+			continue
+		}
+		if latest.IsZero() || p.UpdatedAt.After(latest) {
+			latest = p.UpdatedAt
+			status = p.Status
+		}
+	}
+	return status
 }
 
 func (m Model) selectRepo() Model {
@@ -564,14 +602,16 @@ func (m Model) renderReposPane(width, height int) string {
 
 	var rows []string
 	for i := m.repoOffset; i < end; i++ {
-		selected := i == m.repoCursor
-		name := repoShortName(m.repos[i])
-		name = truncateStr(name, width-4)
-		if selected {
-			rows = append(rows, repoSelectedStyle.Width(width).Render(name))
-		} else {
-			rows = append(rows, repoItemStyle.Width(width).Render(name))
+		repo := m.repos[i]
+		name := repoShortName(repo)
+		status := m.repoLatestStatus(repo)
+		icon := statusIconCompact(status)
+
+		var right string
+		if status == pipeline.StatusRunning || status == pipeline.StatusPending {
+			right = dimStyle.Render(formatDuration(m.repoRunningDuration(repo)))
 		}
+		rows = append(rows, renderRepoEntry(name, icon, right, width, i == m.repoCursor))
 	}
 
 	content := header + "\n" + strings.Join(rows, "\n")
@@ -589,6 +629,28 @@ func (m Model) renderReposPane(width, height int) string {
 	}
 
 	return content
+}
+
+func renderRepoEntry(name, icon, right string, width int, selected bool) string {
+	style := repoItemStyle
+	if selected {
+		style = repoSelectedStyle
+	}
+
+	innerWidth := max(width-3, 10)
+	iconW := lipgloss.Width(icon) + 1
+	rightW := lipgloss.Width(right)
+	if rightW > 0 {
+		rightW++
+	}
+	name = truncateStr(name, max(innerWidth-iconW-rightW, 5))
+	gap := max(innerWidth-iconW-lipgloss.Width(name)-rightW, 0)
+
+	line := icon + " " + name + strings.Repeat(" ", gap)
+	if right != "" {
+		line += " " + right
+	}
+	return style.Width(width).Render(line)
 }
 
 func (m Model) renderPipelinesPane(width, height int) string {
