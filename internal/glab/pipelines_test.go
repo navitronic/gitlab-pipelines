@@ -33,7 +33,7 @@ func TestFetchPipelines_ParseError(t *testing.T) {
 	script := fakeGlabScript(t, dir, "not json")
 
 	c := &Client{BinaryPath: script}
-	_, err := c.FetchPipelinesByUser(context.Background(), 42, 1, time.Now().Add(-24*time.Hour))
+	_, err := c.FetchPipelinesByUser(context.Background(), 42, "testuser", time.Now().Add(-24*time.Hour))
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
@@ -197,13 +197,13 @@ func TestFetchUserMergeRequests_ParseError(t *testing.T) {
 	}
 }
 
-func TestFetchPipelinesByUser_NoUserID(t *testing.T) {
+func TestFetchPipelinesByUser_NoUsername(t *testing.T) {
 	dir := t.TempDir()
 	response := `[{"id":1,"status":"running"}]`
 	script := fakeGlabScript(t, dir, response)
 
 	c := &Client{BinaryPath: script}
-	pipelines, err := c.FetchPipelinesByUser(context.Background(), 42, 0, time.Now().Add(-24*time.Hour))
+	pipelines, err := c.FetchPipelinesByUser(context.Background(), 42, "", time.Now().Add(-24*time.Hour))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
