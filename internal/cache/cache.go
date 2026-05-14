@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"time"
 
 	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
@@ -16,8 +17,22 @@ const (
 )
 
 type entry struct {
+	Version   string              `json:"version,omitempty"`
 	CachedAt  time.Time           `json:"cached_at"`
 	Pipelines []pipeline.Pipeline `json:"pipelines"`
+}
+
+func buildVersion() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			return s.Value
+		}
+	}
+	return ""
 }
 
 func dir() (string, error) {
@@ -57,6 +72,9 @@ func Load() ([]pipeline.Pipeline, error) {
 	if time.Since(e.CachedAt) > ttl {
 		return nil, nil
 	}
+	if v := buildVersion(); v != "" && e.Version != v {
+		return nil, nil
+	}
 	return e.Pipelines, nil
 }
 
@@ -79,6 +97,7 @@ func Save(pipelines []pipeline.Pipeline) error {
 		return err
 	}
 	e := entry{
+		Version:   buildVersion(),
 		CachedAt:  time.Now(),
 		Pipelines: pipelines,
 	}
