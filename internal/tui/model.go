@@ -301,11 +301,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focus = PanePipelines
 				return m, nil
 			}
-			if m.focus == PanePipelines {
-				if m.layout() != layoutThree {
-					m.focus = PaneDetail
-				}
-				return m.selectPipeline()
+			if m.focus == PanePipelines && m.layout() != layoutThree {
+				m.focus = PaneDetail
+				return m, nil
 			}
 		case "up", "k":
 			switch m.focus {
@@ -326,7 +324,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.detail = nil
 					m.selectedID = ""
-					return m, nil
+					return m.selectPipeline()
 				}
 			}
 		case "down", "j":
@@ -350,7 +348,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.detail = nil
 					m.selectedID = ""
-					return m, nil
+					return m.selectPipeline()
 				}
 			}
 		case "esc":
