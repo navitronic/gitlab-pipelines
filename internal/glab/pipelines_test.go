@@ -199,7 +199,7 @@ func TestFetchUserMergeRequests_ParseError(t *testing.T) {
 
 func TestFetchPipelinesByUser_NoUsername(t *testing.T) {
 	dir := t.TempDir()
-	response := `[{"id":1,"status":"running"}]`
+	response := `[{"id":1,"status":"running","user":{"username":"other"}}]`
 	script := fakeGlabScript(t, dir, response)
 
 	c := &Client{BinaryPath: script}
