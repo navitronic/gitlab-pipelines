@@ -314,7 +314,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.repoOffset = m.repoCursor
 					}
 					m = m.selectRepo()
-					return m.selectPipeline()
+					return m, nil
 				}
 			case PanePipelines:
 				if m.cursor > 0 {
@@ -335,7 +335,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.repoOffset = m.repoCursor - visible + 1
 					}
 					m = m.selectRepo()
-					return m.selectPipeline()
+					return m, nil
 				}
 			case PanePipelines:
 				if m.cursor < len(m.filtered)-1 {
