@@ -72,7 +72,7 @@ func TestFetchProject_ParseError(t *testing.T) {
 
 func TestFetchPipelinesByUser(t *testing.T) {
 	dir := t.TempDir()
-	response := `[{"id":10,"status":"success"},{"id":9,"status":"failed"}]`
+	response := `[{"id":10,"status":"success","user":{"username":"testuser"}},{"id":9,"status":"failed","user":{"username":"testuser"}}]`
 	script := fakeGlabScript(t, dir, response)
 
 	c := &Client{BinaryPath: script}
