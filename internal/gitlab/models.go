@@ -24,7 +24,6 @@ type Pipeline struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 	Duration       float64   `json:"duration"`
 	QueuedDuration float64   `json:"queued_duration"`
-	User           *User     `json:"user,omitempty"`
 }
 
 // Job represents a job within a pipeline.
