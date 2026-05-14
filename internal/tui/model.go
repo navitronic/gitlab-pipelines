@@ -293,13 +293,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				maxPane = PanePipelines
 			}
 			if m.focus < maxPane {
+				prevFocus := m.focus
 				m.focus++
+				if prevFocus == PaneRepos && m.focus == PanePipelines {
+					return m.selectPipeline()
+				}
 			}
 			return m, nil
 		case "enter":
 			if m.focus == PaneRepos {
 				m.focus = PanePipelines
-				return m, nil
+				return m.selectPipeline()
 			}
 			if m.focus == PanePipelines && m.layout() != layoutThree {
 				m.focus = PaneDetail
@@ -314,7 +318,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.repoOffset = m.repoCursor
 					}
 					m = m.selectRepo()
-					return m.selectPipeline()
+					return m, nil
 				}
 			case PanePipelines:
 				if m.cursor > 0 {
@@ -322,6 +326,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.cursor < m.offset {
 						m.offset = m.cursor
 					}
+					m.detail = nil
+					m.selectedID = ""
 					return m.selectPipeline()
 				}
 			}
@@ -335,7 +341,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.repoOffset = m.repoCursor - visible + 1
 					}
 					m = m.selectRepo()
-					return m.selectPipeline()
+					return m, nil
 				}
 			case PanePipelines:
 				if m.cursor < len(m.filtered)-1 {
@@ -344,6 +350,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.cursor >= m.offset+visible {
 						m.offset = m.cursor - visible + 1
 					}
+					m.detail = nil
+					m.selectedID = ""
 					return m.selectPipeline()
 				}
 			}
