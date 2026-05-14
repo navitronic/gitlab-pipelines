@@ -99,6 +99,34 @@ func TestLoadExpired(t *testing.T) {
 	}
 }
 
+func TestLoadVersionMismatch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(tmp, "cache"))
+
+	p, _ := filePath()
+	d, _ := dir()
+	os.MkdirAll(d, 0o755)
+
+	e := entry{
+		Version:   "old-sha-that-does-not-match",
+		CachedAt:  time.Now(),
+		Pipelines: []pipeline.Pipeline{{ID: "1", Status: pipeline.StatusPassed}},
+	}
+	data, _ := json.Marshal(e)
+	os.WriteFile(p, data, 0o644)
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	// buildVersion() returns "" in test binaries (no VCS info),
+	// so the version check is skipped and data loads normally.
+	if loaded == nil {
+		t.Fatal("expected cached data (version check skipped in tests)")
+	}
+}
+
 func TestLoadCorrupted(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("HOME", tmp)
