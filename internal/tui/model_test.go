@@ -231,7 +231,7 @@ func TestDetailTickingPreventsStackedChains(t *testing.T) {
 		{ID: "1", Name: "build", Status: pipeline.StatusRunning, Stage: "build"},
 	}
 
-	result, cmd := m.Update(JobsLoadedMsg{Jobs: activeJobs})
+	result, cmd := m.Update(JobsLoadedMsg{PipelineID: "1", Jobs: activeJobs})
 	m = result.(Model)
 	if !m.detailTicking {
 		t.Fatal("detailTicking should be true after first JobsLoadedMsg with active jobs")
@@ -240,7 +240,7 @@ func TestDetailTickingPreventsStackedChains(t *testing.T) {
 		t.Fatal("expected a tick cmd from first JobsLoadedMsg")
 	}
 
-	result, cmd = m.Update(JobsLoadedMsg{Jobs: activeJobs})
+	result, cmd = m.Update(JobsLoadedMsg{PipelineID: "1", Jobs: activeJobs})
 	m = result.(Model)
 	if cmd != nil {
 		t.Fatal("second JobsLoadedMsg should not spawn another tick chain")

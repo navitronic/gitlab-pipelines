@@ -33,7 +33,7 @@ func main() {
 func runDemo(m tui.Model) {
 	m.FetchJobs = func(_, pipelineID string) tea.Cmd {
 		return func() tea.Msg {
-			return tui.JobsLoadedMsg{Jobs: demo.Jobs(pipelineID)}
+			return tui.JobsLoadedMsg{PipelineID: pipelineID, Jobs: demo.Jobs(pipelineID)}
 		}
 	}
 	m.FetchPipeline = func(_, pipelineID string) tea.Cmd {
@@ -70,7 +70,7 @@ func runLive(m tui.Model) {
 	m.FetchJobs = func(projectID, pipelineID string) tea.Cmd {
 		return func() tea.Msg {
 			jobs, err := svc.ListJobs(ctx, projectID, pipelineID)
-			return tui.JobsLoadedMsg{Jobs: jobs, Err: err}
+			return tui.JobsLoadedMsg{PipelineID: pipelineID, Jobs: jobs, Err: err}
 		}
 	}
 	m.FetchPipeline = func(projectID, pipelineID string) tea.Cmd {

@@ -273,7 +273,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case JobsLoadedMsg:
-		if m.detail != nil {
+		if m.detail != nil && msg.PipelineID == m.selectedID {
 			m.detail.SetJobs(msg.Jobs, msg.Err)
 			if m.detail.hasActiveJobs() && !m.detailTicking {
 				m.detailTicking = true
@@ -282,7 +282,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case PipelineUpdatedMsg:
-		if m.detail != nil && msg.Err == nil {
+		if m.detail != nil && msg.Err == nil && msg.Pipeline.ID == m.selectedID {
 			if msg.Pipeline.Project == "" {
 				msg.Pipeline.Project = m.detail.row.Pipeline.Project
 			}
