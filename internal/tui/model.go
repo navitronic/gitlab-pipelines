@@ -293,13 +293,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				maxPane = PanePipelines
 			}
 			if m.focus < maxPane {
+				prevFocus := m.focus
 				m.focus++
+				if prevFocus == PaneRepos && m.focus == PanePipelines {
+					return m.selectPipeline()
+				}
 			}
 			return m, nil
 		case "enter":
 			if m.focus == PaneRepos {
 				m.focus = PanePipelines
-				return m, nil
+				return m.selectPipeline()
 			}
 			if m.focus == PanePipelines && m.layout() != layoutThree {
 				m.focus = PaneDetail
