@@ -411,8 +411,11 @@ func TestNavigateDownInPipelines(t *testing.T) {
 	if m.cursor != 1 {
 		t.Errorf("cursor = %d, want 1", m.cursor)
 	}
-	if m.selectedID != "2" {
-		t.Errorf("selectedID = %q, want \"2\"", m.selectedID)
+	if m.selectedID != "" {
+		t.Errorf("selectedID = %q, want empty (cleared on navigate)", m.selectedID)
+	}
+	if m.detail != nil {
+		t.Error("detail should be nil after navigating pipelines")
 	}
 }
 
