@@ -12,28 +12,14 @@ import (
 )
 
 // FetchPipelinesByUser fetches recent pipelines for a project belonging to a user,
-// ordered by most recently created. Filters both server-side (via the username query
-// parameter) and client-side (in case the server ignores the parameter).
+// ordered by most recently created.
 func (c *Client) FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error) {
 	endpoint := fmt.Sprintf("projects/%d/pipelines?order_by=id&sort=desc&per_page=20&updated_after=%s",
 		projectID, url.QueryEscape(updatedAfter.Format(time.RFC3339)))
 	if username != "" {
 		endpoint += "&username=" + url.QueryEscape(username)
 	}
-	pipelines, err := c.fetchPipelinesPaginated(ctx, endpoint)
-	if err != nil {
-		return nil, err
-	}
-	if username == "" {
-		return pipelines, nil
-	}
-	filtered := pipelines[:0]
-	for _, p := range pipelines {
-		if p.User != nil && p.User.Username == username {
-			filtered = append(filtered, p)
-		}
-	}
-	return filtered, nil
+	return c.fetchPipelinesPaginated(ctx, endpoint)
 }
 
 // FetchPipeline fetches a single pipeline by ID.
