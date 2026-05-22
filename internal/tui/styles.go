@@ -16,14 +16,6 @@ var (
 				PaddingBottom(1).
 				Background(lipgloss.Color("238")).
 				Foreground(lipgloss.Color("229"))
-	repoItemStyle = lipgloss.NewStyle().
-			PaddingLeft(2).
-			PaddingRight(1)
-	repoSelectedStyle = lipgloss.NewStyle().
-				PaddingLeft(2).
-				PaddingRight(1).
-				Background(lipgloss.Color("238")).
-				Foreground(lipgloss.Color("229"))
 	toastStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("252")).
 			Background(lipgloss.Color("237")).

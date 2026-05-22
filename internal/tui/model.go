@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
-	"sort"
 	"strings"
 	"time"
 
@@ -21,8 +20,7 @@ const refreshInterval = 30 * time.Second
 type Pane int
 
 const (
-	PaneRepos Pane = iota
-	PanePipelines
+	PanePipelines Pane = iota
 	PaneDetail
 )
 
@@ -30,9 +28,8 @@ const (
 type layoutMode int
 
 const (
-	layoutThree layoutMode = iota // ≥120 cols: all 3 panes
-	layoutTwo   layoutMode = iota // 80-119: 2 panes
-	layoutOne   layoutMode = iota // <80: 1 pane
+	layoutTwo layoutMode = iota // ≥80 cols: pipelines + detail
+	layoutOne                   // <80: 1 pane
 )
 
 // PipelinesLoadedMsg signals that pipelines have been fetched.
@@ -64,11 +61,6 @@ type PipelineRow struct {
 type Model struct {
 	spinner       spinner.Model
 	pipelines     []PipelineRow
-	repos         []string
-	repoCursor    int
-	repoOffset    int
-	selectedRepo  string
-	filtered      []PipelineRow
 	cursor        int
 	offset        int
 	focus         Pane
@@ -96,7 +88,7 @@ func New() Model {
 	return Model{
 		spinner: s,
 		loading: true,
-		focus:   PaneRepos,
+		focus:   PanePipelines,
 		width:   120,
 		height:  24,
 	}
@@ -119,53 +111,24 @@ func scheduleDetailTick() tea.Cmd {
 }
 
 func (m Model) layout() layoutMode {
-	if m.width >= 120 {
-		return layoutThree
-	}
 	if m.width >= 80 {
 		return layoutTwo
 	}
 	return layoutOne
 }
 
-func (m Model) reposPaneWidth() int {
-	switch m.layout() {
-	case layoutThree:
-		return min(max(m.width/4, 20), 40)
-	case layoutTwo:
-		return min(max(m.width/3, 20), 35)
-	default:
-		return m.width
-	}
-}
-
 func (m Model) pipelinesPaneWidth() int {
-	switch m.layout() {
-	case layoutThree:
-		w := m.width - m.reposPaneWidth()
-		return w * 2 / 5
-	case layoutTwo:
-		return m.width - m.reposPaneWidth()
-	default:
-		return m.width
+	if m.layout() == layoutTwo {
+		return min(max(m.width*2/5, 30), 50)
 	}
+	return m.width
 }
 
 func (m Model) detailPaneWidth() int {
-	switch m.layout() {
-	case layoutThree:
-		return m.width - m.reposPaneWidth() - m.pipelinesPaneWidth()
-	default:
-		return m.width
+	if m.layout() == layoutTwo {
+		return m.width - m.pipelinesPaneWidth()
 	}
-}
-
-func (m Model) visibleRepos() int {
-	available := m.height - 4
-	if available < 1 {
-		return 1
-	}
-	return available
+	return m.width
 }
 
 func (m Model) visibleItems() int {
@@ -176,69 +139,13 @@ func (m Model) visibleItems() int {
 	return available / 4
 }
 
-func (m *Model) deriveRepos() {
-	seen := make(map[string]bool)
-	var repos []string
-	for _, row := range m.pipelines {
-		if !seen[row.Pipeline.Project] {
-			seen[row.Pipeline.Project] = true
-			repos = append(repos, row.Pipeline.Project)
-		}
-	}
-	sort.Strings(repos)
-	m.repos = repos
-	if m.repoCursor >= len(m.repos) {
-		m.repoCursor = max(0, len(m.repos)-1)
-	}
-	if len(m.repos) > 0 {
-		if m.selectedRepo == "" {
-			m.selectedRepo = m.repos[m.repoCursor]
-		}
-	} else {
-		m.selectedRepo = ""
-	}
-	m.filterPipelines()
-}
-
-func (m *Model) filterPipelines() {
-	m.filtered = nil
-	for _, row := range m.pipelines {
-		if row.Pipeline.Project == m.selectedRepo {
-			m.filtered = append(m.filtered, row)
-		}
-	}
-	if m.cursor >= len(m.filtered) {
-		m.cursor = max(0, len(m.filtered)-1)
-	}
-	if m.offset > m.cursor {
-		m.offset = m.cursor
-	}
-}
-
-func (m Model) selectRepo() Model {
-	if len(m.repos) == 0 {
-		return m
-	}
-	repo := m.repos[m.repoCursor]
-	if repo == m.selectedRepo {
-		return m
-	}
-	m.selectedRepo = repo
-	m.cursor = 0
-	m.offset = 0
-	m.filterPipelines()
-	m.detail = nil
-	m.selectedID = ""
-	return m
-}
-
 func (m Model) selectPipeline() (Model, tea.Cmd) {
-	if len(m.filtered) == 0 {
+	if len(m.pipelines) == 0 {
 		m.detail = nil
 		m.selectedID = ""
 		return m, nil
 	}
-	row := m.filtered[m.cursor]
+	row := m.pipelines[m.cursor]
 	if row.Pipeline.ID == m.selectedID {
 		return m, nil
 	}
@@ -283,43 +190,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "left", "h":
-			if m.focus > PaneRepos {
+			if m.focus > PanePipelines {
 				m.focus--
 			}
 			return m, nil
 		case "right", "l":
-			maxPane := PaneDetail
-			if m.layout() == layoutTwo {
-				maxPane = PanePipelines
-			}
-			if m.focus < maxPane {
-				prevFocus := m.focus
+			if m.focus < PaneDetail && m.layout() == layoutTwo {
 				m.focus++
-				if prevFocus == PaneRepos && m.focus == PanePipelines {
-					return m.selectPipeline()
-				}
 			}
 			return m, nil
 		case "enter":
-			if m.focus == PaneRepos {
-				m.focus = PanePipelines
-				return m.selectPipeline()
-			}
-			if m.focus == PanePipelines && m.layout() != layoutThree {
+			if m.focus == PanePipelines && m.layout() != layoutTwo {
 				m.focus = PaneDetail
 				return m, nil
 			}
 		case "up", "k":
 			switch m.focus {
-			case PaneRepos:
-				if m.repoCursor > 0 {
-					m.repoCursor--
-					if m.repoCursor < m.repoOffset {
-						m.repoOffset = m.repoCursor
-					}
-					m = m.selectRepo()
-					return m, nil
-				}
 			case PanePipelines:
 				if m.cursor > 0 {
 					m.cursor--
@@ -333,18 +219,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "down", "j":
 			switch m.focus {
-			case PaneRepos:
-				if m.repoCursor < len(m.repos)-1 {
-					m.repoCursor++
-					visible := m.visibleRepos()
-					if m.repoCursor >= m.repoOffset+visible {
-						m.repoOffset = m.repoCursor - visible + 1
-					}
-					m = m.selectRepo()
-					return m, nil
-				}
 			case PanePipelines:
-				if m.cursor < len(m.filtered)-1 {
+				if m.cursor < len(m.pipelines)-1 {
 					m.cursor++
 					visible := m.visibleItems()
 					if m.cursor >= m.offset+visible {
@@ -378,26 +254,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = formatError(msg.Err)
 			if isFatalError(msg.Err) {
 				m.pipelines = nil
-				m.repos = nil
-				m.filtered = nil
 				m.cursor = 0
 				m.offset = 0
-				m.repoCursor = 0
-				m.repoOffset = 0
 				m.detail = nil
 				m.selectedID = ""
-				m.selectedRepo = ""
 			}
 			return m, nil
 		}
 		m.err = nil
 		m.pipelines = msg.Pipelines
-		m.deriveRepos()
+		if m.cursor >= len(m.pipelines) {
+			m.cursor = max(0, len(m.pipelines)-1)
+		}
+		if m.offset > m.cursor {
+			m.offset = m.cursor
+		}
 		m, cmd := m.selectPipeline()
 		return m, cmd
 
 	case JobsLoadedMsg:
-		if m.detail != nil {
+		if m.detail != nil && msg.PipelineID == m.selectedID {
 			m.detail.SetJobs(msg.Jobs, msg.Err)
 			if m.detail.hasActiveJobs() && !m.detailTicking {
 				m.detailTicking = true
@@ -406,7 +282,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case PipelineUpdatedMsg:
-		if m.detail != nil && msg.Err == nil {
+		if m.detail != nil && msg.Err == nil && msg.Pipeline.ID == m.selectedID {
 			if msg.Pipeline.Project == "" {
 				msg.Pipeline.Project = m.detail.row.Pipeline.Project
 			}
@@ -480,8 +356,6 @@ func (m Model) View() string {
 
 	var panes string
 	switch m.layout() {
-	case layoutThree:
-		panes = m.renderThreePane(paneHeight)
 	case layoutTwo:
 		panes = m.renderTwoPane(paneHeight)
 	default:
@@ -492,53 +366,25 @@ func (m Model) View() string {
 	return lipgloss.JoinVertical(lipgloss.Left, panes, statusBar)
 }
 
-func (m Model) renderThreePane(height int) string {
-	repoW := m.reposPaneWidth()
+func (m Model) renderTwoPane(height int) string {
 	pipeW := m.pipelinesPaneWidth()
 	detailW := m.detailPaneWidth()
 
-	repoPane := m.renderReposPane(repoW, height)
 	pipePane := m.renderPipelinesPane(pipeW, height)
 	detailPane := ""
 	if m.detail != nil {
 		detailPane = m.detail.Render(detailW, height)
 	}
 
-	repoBox := m.paneBox(repoPane, repoW, height, m.focus == PaneRepos, false)
-	pipeBox := m.paneBox(pipePane, pipeW, height, m.focus == PanePipelines, true)
+	pipeBox := m.paneBox(pipePane, pipeW, height, m.focus == PanePipelines, false)
 	detailBox := m.paneBox(detailPane, detailW, height, m.focus == PaneDetail, true)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, repoBox, pipeBox, detailBox)
-}
-
-func (m Model) renderTwoPane(height int) string {
-	repoW := m.reposPaneWidth()
-	pipeW := m.pipelinesPaneWidth()
-
-	switch m.focus {
-	case PaneDetail:
-		pipePane := m.renderPipelinesPane(repoW, height)
-		detailPane := ""
-		if m.detail != nil {
-			detailPane = m.detail.Render(pipeW, height)
-		}
-		pipeBox := m.paneBox(pipePane, repoW, height, false, false)
-		detailBox := m.paneBox(detailPane, pipeW, height, true, true)
-		return lipgloss.JoinHorizontal(lipgloss.Top, pipeBox, detailBox)
-	default:
-		repoPane := m.renderReposPane(repoW, height)
-		pipePane := m.renderPipelinesPane(pipeW, height)
-		repoBox := m.paneBox(repoPane, repoW, height, m.focus == PaneRepos, false)
-		pipeBox := m.paneBox(pipePane, pipeW, height, m.focus == PanePipelines, true)
-		return lipgloss.JoinHorizontal(lipgloss.Top, repoBox, pipeBox)
-	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, pipeBox, detailBox)
 }
 
 func (m Model) renderOnePane(height int) string {
 	w := m.width
 	switch m.focus {
-	case PaneRepos:
-		return lipgloss.NewStyle().Width(w).Height(height).Render(m.renderReposPane(w, height))
 	case PanePipelines:
 		return lipgloss.NewStyle().Width(w).Height(height).Render(m.renderPipelinesPane(w, height))
 	default:
@@ -564,56 +410,21 @@ func (m Model) paneBox(content string, width, height int, focused, borderLeft bo
 	return style.Render(content)
 }
 
-func (m Model) renderReposPane(width, height int) string {
-	header := listTitleStyle.Render("Repos")
-
-	visible := m.visibleRepos()
-	end := min(m.repoOffset+visible, len(m.repos))
-
-	var rows []string
-	for i := m.repoOffset; i < end; i++ {
-		selected := i == m.repoCursor
-		name := repoShortName(m.repos[i])
-		name = truncateStr(name, width-4)
-		if selected {
-			rows = append(rows, repoSelectedStyle.Width(width).Render(name))
-		} else {
-			rows = append(rows, repoItemStyle.Width(width).Render(name))
-		}
-	}
-
-	content := header + "\n" + strings.Join(rows, "\n")
-
-	if m.loading {
-		status := "syncing..."
-		if m.loadingStatus != "" {
-			status = m.loadingStatus
-		}
-		toast := toastStyle.Render(m.spinner.View() + " " + status)
-		toastHeight := lipgloss.Height(toast)
-		topHeight := max(height-toastHeight, 1)
-		top := lipgloss.NewStyle().Width(width).Height(topHeight).Render(content)
-		return lipgloss.JoinVertical(lipgloss.Left, top, toast)
-	}
-
-	return content
-}
-
 func (m Model) renderPipelinesPane(width, height int) string {
 	header := listTitleStyle.Render("Pipelines")
 
 	visible := m.visibleItems()
-	end := min(m.offset+visible, len(m.filtered))
+	end := min(m.offset+visible, len(m.pipelines))
 
 	var rows []string
 	for i := m.offset; i < end; i++ {
 		selected := i == m.cursor
-		rows = append(rows, renderPipelineItem(m.filtered[i], width, selected))
+		rows = append(rows, renderPipelineItem(m.pipelines[i], width, selected))
 	}
 
 	listContent := header + "\n" + strings.Join(rows, "\n")
 
-	if m.loading && m.focus == PanePipelines {
+	if m.loading {
 		status := "syncing..."
 		if m.loadingStatus != "" {
 			status = m.loadingStatus
@@ -630,19 +441,11 @@ func (m Model) renderPipelinesPane(width, height int) string {
 
 func (m Model) renderStatusBar() string {
 	var parts []string
-	parts = append(parts, "←/→: pane", "↑/↓: navigate", "o: open")
+	parts = append(parts, "↑/↓: navigate", "o: open")
 	parts = append(parts, "r: refresh", "R: hard refresh", "q: quit")
 	center := strings.Join(parts, " • ")
 	content := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, center)
 	return statusBarStyle.Width(m.width).Render(content)
-}
-
-func repoShortName(path string) string {
-	parts := strings.Split(path, "/")
-	if len(parts) <= 2 {
-		return path
-	}
-	return strings.Join(parts[len(parts)-2:], "/")
 }
 
 func renderPipelineItem(p PipelineRow, width int, selected bool) string {

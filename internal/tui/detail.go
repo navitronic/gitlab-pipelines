@@ -16,8 +16,9 @@ type MRLoadedMsg struct {
 }
 
 type JobsLoadedMsg struct {
-	Jobs []pipeline.Job
-	Err  error
+	PipelineID string
+	Jobs       []pipeline.Job
+	Err        error
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
