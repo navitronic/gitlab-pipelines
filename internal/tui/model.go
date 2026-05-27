@@ -610,6 +610,30 @@ func renderPipelineItem(p PipelineRow, width int, selected, dimmed bool) string 
 	return itemStyle.Render(row1 + "\n" + row2)
 }
 
+func renderGroupHeader(project string, count int, width int) string {
+	text := fmt.Sprintf("▸ %s (%d)", project, count)
+	
+	// If text fits within width, render and return
+	if lipgloss.Width(text) <= width {
+		return groupHeaderStyle.Render(text)
+	}
+	
+	// Truncate project name to fit within width
+	// Reserve space for: "▸ " (2) + " (N)" (3 + len(count_str))
+	countStr := fmt.Sprintf("%d", count)
+	reserved := 2 + 3 + len(countStr) // "▸ " + " ()" + count digits
+	maxProjectWidth := width - reserved
+	
+	if maxProjectWidth < 1 {
+		// Width too narrow, just return arrow and count
+		return groupHeaderStyle.Render(fmt.Sprintf("▸ (%s)", countStr))
+	}
+	
+	truncatedProject := truncateStr(project, maxProjectWidth)
+	text = fmt.Sprintf("▸ %s (%d)", truncatedProject, count)
+	return groupHeaderStyle.Render(text)
+}
+
 func truncateStr(s string, maxWidth int) string {
 	if lipgloss.Width(s) <= maxWidth {
 		return s

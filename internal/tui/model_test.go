@@ -1009,3 +1009,70 @@ func TestPipelineGroups(t *testing.T) {
 		})
 	}
 }
+
+func TestRenderGroupHeader(t *testing.T) {
+	tests := []struct {
+		name    string
+		project string
+		count   int
+		width   int
+		check   func(string) bool
+	}{
+		{
+			name:    "normal case",
+			project: "acme/frontend",
+			count:   3,
+			width:   80,
+			check: func(s string) bool {
+				return s != "" && strings.Contains(s, "acme/frontend") && strings.Contains(s, "3")
+			},
+		},
+		{
+			name:    "empty project name",
+			project: "",
+			count:   5,
+			width:   80,
+			check: func(s string) bool {
+				return s != "" && strings.Contains(s, "5")
+			},
+		},
+		{
+			name:    "zero count",
+			project: "test/project",
+			count:   0,
+			width:   80,
+			check: func(s string) bool {
+				return s != "" && strings.Contains(s, "test/project") && strings.Contains(s, "0")
+			},
+		},
+		{
+			name:    "width constraint truncates project",
+			project: "very-long-project-name-that-exceeds-width",
+			count:   5,
+			width:   20,
+			check: func(s string) bool {
+				// Should contain arrow, count, and be non-empty
+				return s != "" && strings.Contains(s, "5") && strings.Contains(s, "▸")
+			},
+		},
+		{
+			name:    "very narrow width",
+			project: "project",
+			count:   99,
+			width:   8,
+			check: func(s string) bool {
+				// Should still render arrow and count
+				return s != "" && strings.Contains(s, "99")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := renderGroupHeader(tt.project, tt.count, tt.width)
+			if !tt.check(got) {
+				t.Errorf("renderGroupHeader(%q, %d, %d) = %q, check failed", tt.project, tt.count, tt.width, got)
+			}
+		})
+	}
+}
