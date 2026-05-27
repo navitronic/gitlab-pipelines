@@ -4,7 +4,9 @@ import "github.com/charmbracelet/lipgloss"
 
 var (
 	listTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2).MarginTop(1)
-	groupHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("69")).MarginLeft(2)
+	projectHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	refHeaderStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("69"))
+	treeStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 	itemBaseStyle  = lipgloss.NewStyle().
 			PaddingLeft(2).
 			PaddingRight(2).

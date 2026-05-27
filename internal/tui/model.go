@@ -58,12 +58,17 @@ type PipelineRow struct {
 	Pipeline pipeline.Pipeline
 }
 
-// PipelineGroup marks a group boundary in the flat pipeline list.
-// Used for hierarchical display when grouping by project.
-type PipelineGroup struct {
-	Project string // Project name (e.g., "group/project")
-	Start   int    // Index of first pipeline in this group
-	Count   int    // Number of pipelines in this group
+type RefSubGroup struct {
+	Ref   string
+	Start int
+	Count int
+}
+
+type ProjectGroup struct {
+	Project string
+	Start   int
+	Count   int
+	Refs    []RefSubGroup
 }
 
 // Model is the top-level Bubble Tea model.
@@ -124,68 +129,94 @@ func (m Model) visiblePipelines() []PipelineRow {
 		return result
 	}
 
-	// In "all" mode: group by project, ordered by most recent pipeline per project
-	// First, compute max UpdatedAt per project
+	// In "all" mode: group by project, then ref.
 	maxUpdatedPerProject := make(map[string]time.Time)
+	maxUpdatedPerRef := make(map[string]time.Time)
 	for _, row := range m.pipelines {
-		if row.Pipeline.UpdatedAt.After(maxUpdatedPerProject[row.Pipeline.Project]) {
-			maxUpdatedPerProject[row.Pipeline.Project] = row.Pipeline.UpdatedAt
+		project := row.Pipeline.Project
+		refKey := project + "\x00" + row.Pipeline.Ref
+		if row.Pipeline.UpdatedAt.After(maxUpdatedPerProject[project]) {
+			maxUpdatedPerProject[project] = row.Pipeline.UpdatedAt
+		}
+		if row.Pipeline.UpdatedAt.After(maxUpdatedPerRef[refKey]) {
+			maxUpdatedPerRef[refKey] = row.Pipeline.UpdatedAt
 		}
 	}
 
-	// Stable sort: by (max UpdatedAt desc, Project path asc)
-	// This groups by project and orders groups by recency, while preserving
-	// chronological order within each group (due to stable sort)
 	result := make([]PipelineRow, len(m.pipelines))
 	copy(result, m.pipelines)
 	sort.SliceStable(result, func(i, j int) bool {
 		projI := result[i].Pipeline.Project
 		projJ := result[j].Pipeline.Project
 		if projI != projJ {
-			// Different projects: order by max UpdatedAt desc
 			maxI := maxUpdatedPerProject[projI]
 			maxJ := maxUpdatedPerProject[projJ]
 			if !maxI.Equal(maxJ) {
 				return maxI.After(maxJ)
 			}
-			// Same max time: order by ProjectID asc
 			return projI < projJ
 		}
-		// Same project: preserve original order (stable sort)
+
+		refI := result[i].Pipeline.Ref
+		refJ := result[j].Pipeline.Ref
+		if refI != refJ {
+			maxI := maxUpdatedPerRef[projI+"\x00"+refI]
+			maxJ := maxUpdatedPerRef[projJ+"\x00"+refJ]
+			if !maxI.Equal(maxJ) {
+				return maxI.After(maxJ)
+			}
+			return refI < refJ
+		}
+
 		return false
 	})
 	return result
 }
 
-func (m Model) pipelineGroups() []PipelineGroup {
+func (m Model) pipelineHierarchy() []ProjectGroup {
 	visible := m.visiblePipelines()
 	if len(visible) == 0 {
-		return []PipelineGroup{}
+		return []ProjectGroup{}
 	}
 
-	var groups []PipelineGroup
-	currentProject := visible[0].Pipeline.Project
-	startIdx := 0
-
+	groups := make([]ProjectGroup, 0, len(visible))
 	for i, row := range visible {
-		if row.Pipeline.Project != currentProject {
-			// End current group, start new one
-			groups = append(groups, PipelineGroup{
-				Project: currentProject,
-				Start:   startIdx,
-				Count:   i - startIdx,
+		project := row.Pipeline.Project
+		ref := row.Pipeline.Ref
+
+		if len(groups) == 0 || groups[len(groups)-1].Project != project {
+			groups = append(groups, ProjectGroup{
+				Project: project,
+				Start:   i,
+				Refs: []RefSubGroup{{
+					Ref:   ref,
+					Start: i,
+					Count: 1,
+				}},
 			})
-			currentProject = row.Pipeline.Project
-			startIdx = i
+			continue
+		}
+
+		projectGroup := &groups[len(groups)-1]
+		lastRef := len(projectGroup.Refs) - 1
+		if lastRef < 0 || projectGroup.Refs[lastRef].Ref != ref {
+			projectGroup.Refs = append(projectGroup.Refs, RefSubGroup{
+				Ref:   ref,
+				Start: i,
+				Count: 1,
+			})
+		} else {
+			projectGroup.Refs[lastRef].Count++
 		}
 	}
 
-	// Add final group
-	groups = append(groups, PipelineGroup{
-		Project: currentProject,
-		Start:   startIdx,
-		Count:   len(visible) - startIdx,
-	})
+	for i := range groups {
+		count := 0
+		for _, ref := range groups[i].Refs {
+			count += ref.Count
+		}
+		groups[i].Count = count
+	}
 
 	return groups
 }
@@ -249,39 +280,59 @@ func (m Model) visibleItemsFromOffset(offset int) int {
 		return 0
 	}
 
-	groups := m.pipelineGroups()
-	showGroupHeaders := !m.showLatestOnly && len(groups) > 1
-	showProject := !showGroupHeaders
-	currentGroupIdx := 0
-	for currentGroupIdx < len(groups) && offset >= groups[currentGroupIdx].Start+groups[currentGroupIdx].Count {
-		currentGroupIdx++
-	}
-
 	linesUsed := 0
 	count := 0
-
-	for i := offset; i < len(pipelines); i++ {
-		for currentGroupIdx < len(groups) && i >= groups[currentGroupIdx].Start+groups[currentGroupIdx].Count {
-			currentGroupIdx++
-		}
-
-		if showGroupHeaders && currentGroupIdx < len(groups) && i == groups[currentGroupIdx].Start {
-			header := renderGroupHeader(groups[currentGroupIdx].Project, groups[currentGroupIdx].Count, width)
-			headerLines := lipgloss.Height(header)
-			if linesUsed+headerLines > availableLines {
+	if m.showLatestOnly {
+		for i := offset; i < len(pipelines); i++ {
+			item := renderPipelineItem(pipelines[i], width, i == m.cursor, "", false)
+			itemLines := lipgloss.Height(item)
+			if linesUsed+itemLines > availableLines {
 				break
 			}
-			linesUsed += headerLines
-			currentGroupIdx++
+			linesUsed += itemLines
+			count++
+		}
+		return count
+	}
+
+	hierarchy := m.pipelineHierarchy()
+	for projectIdx, project := range hierarchy {
+		projectEnd := project.Start + project.Count
+		if offset >= projectEnd {
+			continue
 		}
 
-		item := renderPipelineItem(pipelines[i], width, i == m.cursor, showProject)
-		itemLines := lipgloss.Height(item)
-		if linesUsed+itemLines > availableLines {
+		projectHeader := renderProjectHeader(project.Project, projectIdx == len(hierarchy)-1, width)
+		projectHeaderLines := lipgloss.Height(projectHeader)
+		if linesUsed+projectHeaderLines > availableLines {
 			break
 		}
-		linesUsed += itemLines
-		count++
+		linesUsed += projectHeaderLines
+
+		for refIdx, ref := range project.Refs {
+			refEnd := ref.Start + ref.Count
+			if offset >= refEnd {
+				continue
+			}
+
+			refHeader := renderRefHeader(ref.Ref, ref.Count, projectIdx == len(hierarchy)-1, refIdx == len(project.Refs)-1, width)
+			refHeaderLines := lipgloss.Height(refHeader)
+			if linesUsed+refHeaderLines > availableLines {
+				return count
+			}
+			linesUsed += refHeaderLines
+
+			start := max(offset, ref.Start)
+			for i := start; i < refEnd; i++ {
+				item := renderPipelineItem(pipelines[i], width, i == m.cursor, treePrefix(projectIdx == len(hierarchy)-1, refIdx == len(project.Refs)-1, i == refEnd-1, "item"), true)
+				itemLines := lipgloss.Height(item)
+				if linesUsed+itemLines > availableLines {
+					return count
+				}
+				linesUsed += itemLines
+				count++
+			}
+		}
 	}
 
 	return count
@@ -596,43 +647,68 @@ func (m Model) renderPipelinesPane(width, height int) string {
 	header := listTitleStyle.Render("Pipelines")
 
 	pipelines := m.visiblePipelines()
-	groups := m.pipelineGroups()
-	showGroupHeaders := !m.showLatestOnly && len(groups) > 1
-	showProject := !showGroupHeaders
+	hierarchy := m.pipelineHierarchy()
+	showTree := !m.showLatestOnly
 	availableLines := max(height-lipgloss.Height(header), 0)
 
-	rows := make([]string, 0, m.visibleItemsFromOffset(m.offset)+len(groups))
+	rows := make([]string, 0, m.visibleItemsFromOffset(m.offset)+len(hierarchy)*2)
 	linesUsed := 0
-	currentGroupIdx := 0
-	for currentGroupIdx < len(groups) && m.offset >= groups[currentGroupIdx].Start+groups[currentGroupIdx].Count {
-		currentGroupIdx++
-	}
-
-	for i := m.offset; i < len(pipelines); i++ {
-		for currentGroupIdx < len(groups) && i >= groups[currentGroupIdx].Start+groups[currentGroupIdx].Count {
-			currentGroupIdx++
-		}
-
-		if showGroupHeaders && currentGroupIdx < len(groups) && i == groups[currentGroupIdx].Start {
-			groupHeader := renderGroupHeader(groups[currentGroupIdx].Project, groups[currentGroupIdx].Count, width)
-			headerLines := lipgloss.Height(groupHeader)
-			if linesUsed+headerLines > availableLines {
+	if !showTree {
+		for i := m.offset; i < len(pipelines); i++ {
+			selected := i == m.cursor
+			item := renderPipelineItem(pipelines[i], width, selected, "", false)
+			itemLines := lipgloss.Height(item)
+			if linesUsed+itemLines > availableLines {
 				break
 			}
-			rows = append(rows, groupHeader)
-			linesUsed += headerLines
-			currentGroupIdx++
+			rows = append(rows, item)
+			linesUsed += itemLines
 		}
+	} else {
+		for projectIdx, project := range hierarchy {
+			projectEnd := project.Start + project.Count
+			if m.offset >= projectEnd {
+				continue
+			}
 
-		selected := i == m.cursor
-		item := renderPipelineItem(pipelines[i], width, selected, showProject)
-		itemLines := lipgloss.Height(item)
-		if linesUsed+itemLines > availableLines {
-			break
+			projectHeader := renderProjectHeader(project.Project, projectIdx == len(hierarchy)-1, width)
+			projectHeaderLines := lipgloss.Height(projectHeader)
+			if linesUsed+projectHeaderLines > availableLines {
+				break
+			}
+			rows = append(rows, projectHeader)
+			linesUsed += projectHeaderLines
+
+			for refIdx, ref := range project.Refs {
+				refEnd := ref.Start + ref.Count
+				if m.offset >= refEnd {
+					continue
+				}
+
+				refHeader := renderRefHeader(ref.Ref, ref.Count, projectIdx == len(hierarchy)-1, refIdx == len(project.Refs)-1, width)
+				refHeaderLines := lipgloss.Height(refHeader)
+				if linesUsed+refHeaderLines > availableLines {
+					goto done
+				}
+				rows = append(rows, refHeader)
+				linesUsed += refHeaderLines
+
+				start := max(m.offset, ref.Start)
+				for i := start; i < refEnd; i++ {
+					selected := i == m.cursor
+					item := renderPipelineItem(pipelines[i], width, selected, treePrefix(projectIdx == len(hierarchy)-1, refIdx == len(project.Refs)-1, i == refEnd-1, "item"), true)
+					itemLines := lipgloss.Height(item)
+					if linesUsed+itemLines > availableLines {
+						goto done
+					}
+					rows = append(rows, item)
+					linesUsed += itemLines
+				}
+			}
 		}
-		rows = append(rows, item)
-		linesUsed += itemLines
 	}
+
+done:
 
 	listContent := header + "\n" + strings.Join(rows, "\n")
 
@@ -665,65 +741,94 @@ func (m Model) renderStatusBar() string {
 	return statusBarStyle.Width(m.width).Render(content)
 }
 
-func renderPipelineItem(p PipelineRow, width int, selected, showProject bool) string {
+func renderPipelineItem(p PipelineRow, width int, selected bool, prefix string, grouped bool) string {
 	innerWidth := max(width-4, 20)
-	iconWidth := 3
+	prefixWidth := lipgloss.Width(prefix)
+	iconWidth := prefixWidth + 2
 	timeWidth := 12
-	midWidth := max(innerWidth-iconWidth-timeWidth, 20)
+	midWidth := max(innerWidth-iconWidth-timeWidth, 8)
 
 	itemStyle := itemBaseStyle.Width(width)
 	if selected {
 		itemStyle = itemSelectedStyle.Width(width)
 	}
 
-	mid1 := truncateStr(shortSHA(p.Pipeline.SHA)+" - "+p.Pipeline.Ref, midWidth)
+	row1Content := shortSHA(p.Pipeline.SHA)
+	if !grouped {
+		row1Content += " - " + p.Pipeline.Ref
+	}
+	mid1 := truncateStr(row1Content, midWidth)
 	mid2 := truncateStr(p.Pipeline.Project, midWidth)
 	timeStr := formatTime(p.Pipeline.UpdatedAt)
 
 	gap1 := max(innerWidth-iconWidth-lipgloss.Width(mid1)-lipgloss.Width(timeStr), 0)
 	gap2 := max(innerWidth-iconWidth-lipgloss.Width(mid2), 0)
-	buildRows := func(icon, row1Text, row2Text string) string {
-		row1 := icon + " " + row1Text
-		if !showProject {
+	buildRows := func(iconRaw, iconRendered, row1Text, row2Text string) string {
+		row1 := treeStyle.Render(prefix) + iconRendered + " " + row1Text
+		if grouped {
 			return itemStyle.Render(row1)
 		}
 
-		pad := lipgloss.Width(statusIconRaw(p.Pipeline.Status)) + 1
+		pad := prefixWidth + lipgloss.Width(iconRaw) + 1
 		row2 := strings.Repeat(" ", pad) + row2Text
 		return itemStyle.Render(row1 + "\n" + row2)
 	}
 
 	if selected {
 		icon := statusIconRaw(p.Pipeline.Status)
-		return buildRows(icon, mid1+strings.Repeat(" ", gap1)+timeStr, mid2+strings.Repeat(" ", gap2))
+		return buildRows(icon, icon, mid1+strings.Repeat(" ", gap1)+timeStr, mid2+strings.Repeat(" ", gap2))
 	}
 
+	iconRaw := statusIconRaw(p.Pipeline.Status)
 	icon := statusIconCompact(p.Pipeline.Status)
-	return buildRows(icon, mid1+strings.Repeat(" ", gap1)+timeStr, mid2+strings.Repeat(" ", gap2))
+	return buildRows(iconRaw, icon, mid1+strings.Repeat(" ", gap1)+timeStr, mid2+strings.Repeat(" ", gap2))
 }
 
-func renderGroupHeader(project string, count int, width int) string {
-	text := fmt.Sprintf("▸ %s (%d)", project, count)
-
-	// If text fits within width, render and return
-	if lipgloss.Width(text) <= width {
-		return groupHeaderStyle.Render(text)
+func treePrefix(isLastProject, isLastRef, isLastItem bool, level string) string {
+	switch level {
+	case "project":
+		if isLastProject {
+			return "└─ "
+		}
+		return "├─ "
+	case "ref":
+		projectPrefix := "│  "
+		if isLastProject {
+			projectPrefix = "   "
+		}
+		if isLastRef {
+			return projectPrefix + "└─ "
+		}
+		return projectPrefix + "├─ "
+	case "item":
+		projectPrefix := "│  "
+		if isLastProject {
+			projectPrefix = "   "
+		}
+		refPrefix := "│  "
+		if isLastRef {
+			refPrefix = "   "
+		}
+		if isLastItem {
+			return projectPrefix + refPrefix + "└─ "
+		}
+		return projectPrefix + refPrefix + "├─ "
+	default:
+		return ""
 	}
+}
 
-	// Truncate project name to fit within width
-	// Reserve space for: "▸ " (2) + " (N)" (3 + len(count_str))
-	countStr := fmt.Sprintf("%d", count)
-	reserved := 2 + 3 + len(countStr) // "▸ " + " ()" + count digits
-	maxProjectWidth := width - reserved
+func renderProjectHeader(project string, isLast bool, width int) string {
+	prefix := treePrefix(isLast, false, false, "project")
+	text := truncateStr(project, max(width-lipgloss.Width(prefix), 1))
+	return lipgloss.JoinHorizontal(lipgloss.Top, treeStyle.Render(prefix), projectHeaderStyle.Render(text))
+}
 
-	if maxProjectWidth < 1 {
-		// Width too narrow, just return arrow and count
-		return groupHeaderStyle.Render(fmt.Sprintf("▸ (%s)", countStr))
-	}
-
-	truncatedProject := truncateStr(project, maxProjectWidth)
-	text = fmt.Sprintf("▸ %s (%d)", truncatedProject, count)
-	return groupHeaderStyle.Render(text)
+func renderRefHeader(ref string, count int, isLastProject, isLastRef bool, width int) string {
+	prefix := treePrefix(isLastProject, isLastRef, false, "ref")
+	suffix := fmt.Sprintf(" (%d)", count)
+	text := truncateStr(ref, max(width-lipgloss.Width(prefix)-lipgloss.Width(suffix), 1)) + suffix
+	return lipgloss.JoinHorizontal(lipgloss.Top, treeStyle.Render(prefix), refHeaderStyle.Render(text))
 }
 
 func truncateStr(s string, maxWidth int) string {

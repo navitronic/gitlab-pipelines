@@ -144,18 +144,24 @@ func TestRenderPipelineItem(t *testing.T) {
 		},
 	}
 
-	got := renderPipelineItem(row, 80, false, true)
+	got := renderPipelineItem(row, 80, false, "", false)
 	if got == "" {
 		t.Fatal("renderPipelineItem returned empty string")
 	}
+	if !strings.Contains(got, "abc123de - main") {
+		t.Fatalf("expected flat rendering to include sha and ref, got %q", got)
+	}
+	if !strings.Contains(got, row.Pipeline.Project) {
+		t.Fatalf("expected flat rendering to include project row, got %q", got)
+	}
 
-	selected := renderPipelineItem(row, 80, true, true)
+	selected := renderPipelineItem(row, 80, true, "", false)
 	if selected == "" {
 		t.Fatal("renderPipelineItem (selected) returned empty string")
 	}
 }
 
-func TestRenderPipelineItem_NoProject(t *testing.T) {
+func TestRenderPipelineItem_Grouped(t *testing.T) {
 	row := PipelineRow{
 		Pipeline: pipeline.Pipeline{
 			ID:        "1",
@@ -168,17 +174,20 @@ func TestRenderPipelineItem_NoProject(t *testing.T) {
 		},
 	}
 
-	compact := renderPipelineItem(row, 80, false, false)
-	full := renderPipelineItem(row, 80, false, true)
+	grouped := renderPipelineItem(row, 80, false, "│  │  └─ ", true)
+	flat := renderPipelineItem(row, 80, false, "", false)
 
-	if strings.Contains(compact, row.Pipeline.Project) {
-		t.Error("expected no project name when showProject=false")
+	if strings.Contains(grouped, row.Pipeline.Project) {
+		t.Error("expected grouped rendering to omit project row")
 	}
-	if !strings.Contains(compact, "abc123de") || !strings.Contains(compact, "main") {
-		t.Error("expected compact rendering to include SHA and ref")
+	if strings.Contains(grouped, row.Pipeline.Ref) {
+		t.Error("expected grouped rendering to omit ref from item row")
 	}
-	if lipgloss.Height(compact) >= lipgloss.Height(full) {
-		t.Errorf("expected compact item to be shorter than full item, got compact=%d full=%d", lipgloss.Height(compact), lipgloss.Height(full))
+	if !strings.Contains(grouped, "│  │  └─ ") || !strings.Contains(grouped, "abc123de") {
+		t.Errorf("expected grouped rendering to include tree prefix and SHA, got %q", grouped)
+	}
+	if lipgloss.Height(grouped) >= lipgloss.Height(flat) {
+		t.Errorf("expected grouped item to be shorter than flat item, got grouped=%d flat=%d", lipgloss.Height(grouped), lipgloss.Height(flat))
 	}
 }
 
@@ -551,11 +560,11 @@ func TestRenderPipelineItemWidths(t *testing.T) {
 	}
 
 	for _, width := range []int{40, 60, 80, 120} {
-		got := renderPipelineItem(row, width, false, true)
+		got := renderPipelineItem(row, width, false, "", false)
 		if got == "" {
 			t.Errorf("renderPipelineItem(width=%d, selected=false) returned empty", width)
 		}
-		got = renderPipelineItem(row, width, true, true)
+		got = renderPipelineItem(row, width, true, "", false)
 		if got == "" {
 			t.Errorf("renderPipelineItem(width=%d, selected=true) returned empty", width)
 		}
@@ -934,6 +943,9 @@ func TestNavigateDown_GroupedMode(t *testing.T) {
 	if m.cursor < m.offset {
 		t.Errorf("cursor %d should not be less than offset %d", m.cursor, m.offset)
 	}
+	if m.offset == 0 {
+		t.Fatalf("expected offset to advance in grouped mode after navigating down, got %d", m.offset)
+	}
 }
 
 func TestToggleMode_PreservesCursorPipeline(t *testing.T) {
@@ -967,7 +979,7 @@ func TestToggleMode_PreservesCursorPipeline(t *testing.T) {
 	}
 }
 
-func TestVisiblePipelines_AllMode_GroupedByProject(t *testing.T) {
+func TestVisiblePipelines_AllMode_GroupedByProjectAndRef(t *testing.T) {
 	now := time.Now()
 	m := Model{
 		width:          120,
@@ -978,87 +990,58 @@ func TestVisiblePipelines_AllMode_GroupedByProject(t *testing.T) {
 			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "20", Project: "beta", Ref: "main", UpdatedAt: now.Add(-5 * time.Second)}},
 			{Pipeline: pipeline.Pipeline{ID: "3", ProjectID: "10", Project: "alpha", Ref: "feat", UpdatedAt: now.Add(-3 * time.Second)}},
 			{Pipeline: pipeline.Pipeline{ID: "4", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-1 * time.Second)}},
+			{Pipeline: pipeline.Pipeline{ID: "5", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-2 * time.Second)}},
 		},
 	}
 
 	visible := m.visiblePipelines()
-
-	// Should have 4 pipelines (no deduplication in "all" mode)
-	if len(visible) != 4 {
-		t.Errorf("expected 4 visible pipelines, got %d", len(visible))
+	gotIDs := make([]string, 0, len(visible))
+	for _, row := range visible {
+		gotIDs = append(gotIDs, row.Pipeline.ID)
 	}
-
-	// Groups should be ordered by most recent pipeline per project
-	// beta has most recent at now-1s, alpha has most recent at now-3s
-	// So beta should come first
-	if visible[0].Pipeline.Project != "beta" {
-		t.Errorf("first group should be beta (most recent), got %s", visible[0].Pipeline.Project)
+	wantIDs := []string{"4", "5", "2", "3", "1"}
+	if len(gotIDs) != len(wantIDs) {
+		t.Fatalf("expected %d visible pipelines, got %d", len(wantIDs), len(gotIDs))
 	}
-	if visible[2].Pipeline.Project != "alpha" {
-		t.Errorf("second group should be alpha, got %s", visible[2].Pipeline.Project)
-	}
-
-	// Within each group, maintain original order (stable sort preserves it)
-	// Beta group: ID 2 comes before ID 4 (original order)
-	if visible[0].Pipeline.ID != "2" {
-		t.Errorf("first beta pipeline should be ID 2, got %s", visible[0].Pipeline.ID)
-	}
-	if visible[1].Pipeline.ID != "4" {
-		t.Errorf("second beta pipeline should be ID 4, got %s", visible[1].Pipeline.ID)
-	}
-
-	// Alpha group: ID 1 comes before ID 3 (original order)
-	if visible[2].Pipeline.ID != "1" {
-		t.Errorf("first alpha pipeline should be ID 1, got %s", visible[2].Pipeline.ID)
-	}
-	if visible[3].Pipeline.ID != "3" {
-		t.Errorf("second alpha pipeline should be ID 3, got %s", visible[3].Pipeline.ID)
+	for i := range wantIDs {
+		if gotIDs[i] != wantIDs[i] {
+			t.Fatalf("visible[%d] = %s, want %s (got order %v)", i, gotIDs[i], wantIDs[i], gotIDs)
+		}
 	}
 }
 
-func TestPipelineGroups(t *testing.T) {
+func TestPipelineHierarchy(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
 		name      string
 		pipelines []PipelineRow
-		want      []PipelineGroup
+		want      []ProjectGroup
 	}{
 		{
 			name:      "empty pipelines",
 			pipelines: []PipelineRow{},
-			want:      []PipelineGroup{},
+			want:      []ProjectGroup{},
 		},
 		{
 			name: "single pipeline",
 			pipelines: []PipelineRow{
-				{Pipeline: pipeline.Pipeline{ID: "1", Project: "alpha", UpdatedAt: now}},
+				{Pipeline: pipeline.Pipeline{ID: "1", Project: "alpha", Ref: "main", UpdatedAt: now}},
 			},
-			want: []PipelineGroup{
-				{Project: "alpha", Start: 0, Count: 1},
-			},
-		},
-		{
-			name: "single project multiple pipelines",
-			pipelines: []PipelineRow{
-				{Pipeline: pipeline.Pipeline{ID: "1", Project: "alpha", UpdatedAt: now}},
-				{Pipeline: pipeline.Pipeline{ID: "2", Project: "alpha", UpdatedAt: now}},
-				{Pipeline: pipeline.Pipeline{ID: "3", Project: "alpha", UpdatedAt: now}},
-			},
-			want: []PipelineGroup{
-				{Project: "alpha", Start: 0, Count: 3},
+			want: []ProjectGroup{
+				{Project: "alpha", Start: 0, Count: 1, Refs: []RefSubGroup{{Ref: "main", Start: 0, Count: 1}}},
 			},
 		},
 		{
-			name: "two projects grouped",
+			name: "two projects with nested refs",
 			pipelines: []PipelineRow{
-				{Pipeline: pipeline.Pipeline{ID: "1", Project: "beta", UpdatedAt: now.Add(-1 * time.Second)}},
-				{Pipeline: pipeline.Pipeline{ID: "2", Project: "beta", UpdatedAt: now.Add(-2 * time.Second)}},
-				{Pipeline: pipeline.Pipeline{ID: "3", Project: "alpha", UpdatedAt: now.Add(-3 * time.Second)}},
-				{Pipeline: pipeline.Pipeline{ID: "4", Project: "alpha", UpdatedAt: now.Add(-4 * time.Second)}},
+				{Pipeline: pipeline.Pipeline{ID: "1", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-1 * time.Second)}},
+				{Pipeline: pipeline.Pipeline{ID: "2", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-2 * time.Second)}},
+				{Pipeline: pipeline.Pipeline{ID: "3", Project: "beta", Ref: "main", UpdatedAt: now.Add(-3 * time.Second)}},
+				{Pipeline: pipeline.Pipeline{ID: "4", Project: "alpha", Ref: "feat", UpdatedAt: now.Add(-4 * time.Second)}},
 			},
-			want: []PipelineGroup{
-				{Project: "beta", Start: 0, Count: 2},
-				{Project: "alpha", Start: 2, Count: 2},
+			want: []ProjectGroup{
+				{Project: "beta", Start: 0, Count: 3, Refs: []RefSubGroup{{Ref: "dev", Start: 0, Count: 2}, {Ref: "main", Start: 2, Count: 1}}},
+				{Project: "alpha", Start: 3, Count: 1, Refs: []RefSubGroup{{Ref: "feat", Start: 3, Count: 1}}},
 			},
 		},
 	}
@@ -1072,10 +1055,10 @@ func TestPipelineGroups(t *testing.T) {
 				pipelines:      tt.pipelines,
 			}
 
-			got := m.pipelineGroups()
+			got := m.pipelineHierarchy()
 
 			if len(got) != len(tt.want) {
-				t.Errorf("pipelineGroups() returned %d groups, want %d", len(got), len(tt.want))
+				t.Errorf("pipelineHierarchy() returned %d groups, want %d", len(got), len(tt.want))
 				return
 			}
 
@@ -1089,75 +1072,99 @@ func TestPipelineGroups(t *testing.T) {
 				if g.Count != tt.want[i].Count {
 					t.Errorf("group %d: Count = %d, want %d", i, g.Count, tt.want[i].Count)
 				}
+				if len(g.Refs) != len(tt.want[i].Refs) {
+					t.Fatalf("group %d: refs = %d, want %d", i, len(g.Refs), len(tt.want[i].Refs))
+				}
+				for j, ref := range g.Refs {
+					if ref != tt.want[i].Refs[j] {
+						t.Fatalf("group %d ref %d = %+v, want %+v", i, j, ref, tt.want[i].Refs[j])
+					}
+				}
 			}
 		})
 	}
 }
 
-func TestRenderGroupHeader(t *testing.T) {
+func TestPipelineHierarchy_MultipleRefsPerProject(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		showLatestOnly: false,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-1 * time.Second)}},
+			{Pipeline: pipeline.Pipeline{ID: "2", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-2 * time.Second)}},
+			{Pipeline: pipeline.Pipeline{ID: "3", Project: "beta", Ref: "main", UpdatedAt: now.Add(-3 * time.Second)}},
+			{Pipeline: pipeline.Pipeline{ID: "4", Project: "beta", Ref: "main", UpdatedAt: now.Add(-4 * time.Second)}},
+		},
+	}
+
+	hierarchy := m.pipelineHierarchy()
+	if len(hierarchy) != 1 {
+		t.Fatalf("expected 1 project group, got %d", len(hierarchy))
+	}
+	refs := hierarchy[0].Refs
+	if len(refs) != 2 {
+		t.Fatalf("expected 2 ref groups, got %d", len(refs))
+	}
+	if refs[0] != (RefSubGroup{Ref: "dev", Start: 0, Count: 2}) {
+		t.Fatalf("first ref group = %+v", refs[0])
+	}
+	if refs[1] != (RefSubGroup{Ref: "main", Start: 2, Count: 2}) {
+		t.Fatalf("second ref group = %+v", refs[1])
+	}
+}
+
+func TestTreePrefix(t *testing.T) {
 	tests := []struct {
-		name    string
-		project string
-		count   int
-		width   int
-		check   func(string) bool
+		name          string
+		level         string
+		isLastProject bool
+		isLastRef     bool
+		isLastItem    bool
+		want          string
 	}{
-		{
-			name:    "normal case",
-			project: "acme/frontend",
-			count:   3,
-			width:   80,
-			check: func(s string) bool {
-				return s != "" && strings.Contains(s, "acme/frontend") && strings.Contains(s, "3")
-			},
-		},
-		{
-			name:    "empty project name",
-			project: "",
-			count:   5,
-			width:   80,
-			check: func(s string) bool {
-				return s != "" && strings.Contains(s, "5")
-			},
-		},
-		{
-			name:    "zero count",
-			project: "test/project",
-			count:   0,
-			width:   80,
-			check: func(s string) bool {
-				return s != "" && strings.Contains(s, "test/project") && strings.Contains(s, "0")
-			},
-		},
-		{
-			name:    "width constraint truncates project",
-			project: "very-long-project-name-that-exceeds-width",
-			count:   5,
-			width:   20,
-			check: func(s string) bool {
-				// Should contain arrow, count, and be non-empty
-				return s != "" && strings.Contains(s, "5") && strings.Contains(s, "▸")
-			},
-		},
-		{
-			name:    "very narrow width",
-			project: "project",
-			count:   99,
-			width:   8,
-			check: func(s string) bool {
-				// Should still render arrow and count
-				return s != "" && strings.Contains(s, "99")
-			},
-		},
+		{name: "project middle", level: "project", want: "├─ "},
+		{name: "project last", level: "project", isLastProject: true, want: "└─ "},
+		{name: "ref middle middle", level: "ref", want: "│  ├─ "},
+		{name: "ref last project middle ref", level: "ref", isLastProject: true, want: "   ├─ "},
+		{name: "ref last", level: "ref", isLastRef: true, want: "│  └─ "},
+		{name: "ref last project last", level: "ref", isLastProject: true, isLastRef: true, want: "   └─ "},
+		{name: "item middle", level: "item", want: "│  │  ├─ "},
+		{name: "item last in ref", level: "item", isLastItem: true, want: "│  │  └─ "},
+		{name: "item last ref", level: "item", isLastRef: true, want: "│     ├─ "},
+		{name: "item last project", level: "item", isLastProject: true, want: "   │  ├─ "},
+		{name: "item final leaf", level: "item", isLastProject: true, isLastRef: true, isLastItem: true, want: "      └─ "},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := renderGroupHeader(tt.project, tt.count, tt.width)
-			if !tt.check(got) {
-				t.Errorf("renderGroupHeader(%q, %d, %d) = %q, check failed", tt.project, tt.count, tt.width, got)
+			if got := treePrefix(tt.isLastProject, tt.isLastRef, tt.isLastItem, tt.level); got != tt.want {
+				t.Fatalf("treePrefix(...) = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRenderProjectHeader(t *testing.T) {
+	got := renderProjectHeader("acme/frontend", false, 80)
+	if !strings.Contains(got, "├─ ") || !strings.Contains(got, "acme/frontend") {
+		t.Fatalf("unexpected project header: %q", got)
+	}
+
+	truncated := renderProjectHeader("very-long-project-name-that-exceeds-width", true, 12)
+	if !strings.Contains(truncated, "└─ ") || !strings.Contains(truncated, "…") {
+		t.Fatalf("expected truncated final project header, got %q", truncated)
+	}
+}
+
+func TestRenderRefHeader(t *testing.T) {
+	got := renderRefHeader("feat/dark-mode", 2, false, true, 80)
+	if !strings.Contains(got, "│  └─ ") || !strings.Contains(got, "feat/dark-mode (2)") {
+		t.Fatalf("unexpected ref header: %q", got)
+	}
+
+	truncated := renderRefHeader("very-long-ref-name-that-exceeds-width", 12, true, false, 18)
+	if !strings.Contains(truncated, "   ├─ ") || !strings.Contains(truncated, "(12)") || !strings.Contains(truncated, "…") {
+		t.Fatalf("expected truncated ref header, got %q", truncated)
 	}
 }
 
@@ -1177,17 +1184,17 @@ func TestRenderPipelinesPane_WithHeaders(t *testing.T) {
 
 	got := m.renderPipelinesPane(80, 30)
 
-	if !strings.Contains(got, "▸") {
-		t.Fatal("expected group headers in all mode with multiple projects")
+	if !strings.Contains(got, "├─ beta") || !strings.Contains(got, "└─ alpha") {
+		t.Fatalf("expected project tree headers, got:\n%s", got)
 	}
-	if !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") {
-		t.Fatal("expected both project names in headers")
+	if !strings.Contains(got, "│  ├─ main (1)") || !strings.Contains(got, "│  └─ dev (1)") || !strings.Contains(got, "   ├─ main (1)") || !strings.Contains(got, "   └─ feat (1)") {
+		t.Fatalf("expected ref tree headers, got:\n%s", got)
 	}
-	if strings.Count(got, "▸") != 2 {
-		t.Fatalf("expected one header per project boundary, got %d headers", strings.Count(got, "▸"))
+	if !strings.Contains(got, "│  │  └─ ") || !strings.Contains(got, "   │  └─ ") {
+		t.Fatalf("expected nested item prefixes, got:\n%s", got)
 	}
-	if strings.Count(got, "alpha") != 1 || strings.Count(got, "beta") != 1 {
-		t.Fatal("expected grouped rendering to suppress per-item project rows")
+	if strings.Count(got, "alpha") != 1 || strings.Count(got, "beta") != 1 || strings.Count(got, "main") != 2 || strings.Count(got, "feat") != 1 || strings.Count(got, "dev") != 1 {
+		t.Fatal("expected project/ref names only in headers")
 	}
 }
 
@@ -1198,50 +1205,26 @@ func TestRenderPipelinesPane_ScrolledIntoGroup_ShowsLaterHeaders(t *testing.T) {
 		height:         40,
 		showLatestOnly: false,
 		pipelines: []PipelineRow{
-			{Pipeline: pipeline.Pipeline{ID: "a1", ProjectID: "10", Project: "alpha", Ref: "main", UpdatedAt: now.Add(-20 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "b1", ProjectID: "20", Project: "beta", Ref: "main", UpdatedAt: now.Add(-5 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "a2", ProjectID: "10", Project: "alpha", Ref: "feat", UpdatedAt: now.Add(-21 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "b2", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-4 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "a3", ProjectID: "10", Project: "alpha", Ref: "fix", UpdatedAt: now.Add(-22 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "b3", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-3 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "a4", ProjectID: "10", Project: "alpha", Ref: "fix", UpdatedAt: now.Add(-23 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "b4", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-2 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "a5", ProjectID: "10", Project: "alpha", Ref: "fix", UpdatedAt: now.Add(-24 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "b5", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-1 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "a1", ProjectID: "10", Project: "alpha", Ref: "main", SHA: "aaa11111", UpdatedAt: now.Add(-20 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "b1", ProjectID: "20", Project: "beta", Ref: "main", SHA: "bbb11111", UpdatedAt: now.Add(-5 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "a2", ProjectID: "10", Project: "alpha", Ref: "feat", SHA: "aaa22222", UpdatedAt: now.Add(-21 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "b2", ProjectID: "20", Project: "beta", Ref: "dev", SHA: "bbb22222", UpdatedAt: now.Add(-4 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "a3", ProjectID: "10", Project: "alpha", Ref: "fix", SHA: "aaa33333", UpdatedAt: now.Add(-22 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "b3", ProjectID: "20", Project: "beta", Ref: "dev", SHA: "bbb33333", UpdatedAt: now.Add(-3 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "a4", ProjectID: "10", Project: "alpha", Ref: "fix", SHA: "aaa44444", UpdatedAt: now.Add(-23 * time.Minute)}},
 		},
 		focus:  PanePipelines,
-		cursor: 3,
-		offset: 3,
+		cursor: 2,
+		offset: 2,
 	}
 
 	got := m.renderPipelinesPane(80, 40)
 
-	// offset starts mid first group; we must still render later group headers.
-	if !strings.Contains(got, "▸ alpha (5)") {
-		t.Fatalf("expected later group header to render when scrolled mid-group; output:\n%s", got)
+	if !strings.Contains(got, "├─ beta") || !strings.Contains(got, "│  └─ main (1)") {
+		t.Fatalf("expected current project and current ref headers when scrolled into group; output:\n%s", got)
 	}
-}
-
-
-func TestSingleGroupNoHeader(t *testing.T) {
-	now := time.Now()
-	m := Model{
-		width:          80,
-		height:         30,
-		showLatestOnly: false,
-		pipelines: []PipelineRow{
-			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "alpha", Ref: "main", SHA: "aaa11111", UpdatedAt: now.Add(-2 * time.Minute)}},
-			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "10", Project: "alpha", Ref: "feat", SHA: "aaa22222", UpdatedAt: now.Add(-1 * time.Minute)}},
-		},
-	}
-
-	got := m.renderPipelinesPane(80, 30)
-
-	if strings.Contains(got, "▸") {
-		t.Fatal("expected no group header when only one project group exists")
-	}
-	if strings.Count(got, "alpha") < 2 {
-		t.Fatal("expected per-item project rows when headers are suppressed")
+	if !strings.Contains(got, "└─ alpha") || !strings.Contains(got, "   ├─ main (1)") || !strings.Contains(got, "   └─ fix (2)") {
+		t.Fatalf("expected later project and ref headers when scrolled mid-tree; output:\n%s", got)
 	}
 }
 
@@ -1249,7 +1232,7 @@ func TestVisibleItemsFromOffset(t *testing.T) {
 	now := time.Now()
 	m := Model{
 		width:          80,
-		height:         10,
+		height:         14,
 		showLatestOnly: false,
 		pipelines: []PipelineRow{
 			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "alpha", Ref: "main", SHA: "aaa11111", UpdatedAt: now.Add(-4 * time.Minute)}},
