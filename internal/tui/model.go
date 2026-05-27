@@ -259,10 +259,6 @@ func (m Model) visibleItemsFromOffset(offset int) int {
 
 	linesUsed := 0
 	count := 0
-	seenRefs := make(map[string]bool)
-	for i := range pipelines[:offset] {
-		seenRefs[pipelines[i].Pipeline.ProjectID+":"+pipelines[i].Pipeline.Ref] = true
-	}
 
 	for i := offset; i < len(pipelines); i++ {
 		if showGroupHeaders && currentGroupIdx < len(groups) && i == groups[currentGroupIdx].Start {
@@ -275,10 +271,7 @@ func (m Model) visibleItemsFromOffset(offset int) int {
 			currentGroupIdx++
 		}
 
-		key := pipelines[i].Pipeline.ProjectID + ":" + pipelines[i].Pipeline.Ref
-		dimmed := seenRefs[key]
-		seenRefs[key] = true
-		item := renderPipelineItem(pipelines[i], width, i == m.cursor, dimmed, showProject)
+		item := renderPipelineItem(pipelines[i], width, i == m.cursor, showProject)
 		itemLines := lipgloss.Height(item)
 		if linesUsed+itemLines > availableLines {
 			break
@@ -342,14 +335,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "a":
-			m.showLatestOnly = !m.showLatestOnly
+			// Preserve cursor by pipeline ID
+			var preserveID string
 			visible := m.visiblePipelines()
-			if m.cursor >= len(visible) {
-				m.cursor = max(0, len(visible)-1)
+			if m.cursor < len(visible) {
+				preserveID = visible[m.cursor].Pipeline.ID
+			}
+
+			m.showLatestOnly = !m.showLatestOnly
+			newVisible := m.visiblePipelines()
+
+			// Find same pipeline in new view
+			newCursor := 0
+			for i, row := range newVisible {
+				if row.Pipeline.ID == preserveID {
+					newCursor = i
+					break
+				}
+			}
+			m.cursor = newCursor
+
+			// Adjust offset if needed
+			if m.cursor >= len(newVisible) {
+				m.cursor = max(0, len(newVisible)-1)
 			}
 			if m.offset > m.cursor {
 				m.offset = m.cursor
 			}
+
 			m.detail = nil
 			m.selectedID = ""
 			return m.selectPipeline()
@@ -386,7 +399,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case PanePipelines:
 				if m.cursor < len(m.visiblePipelines())-1 {
 					m.cursor++
-					visible := m.visibleItems()
+					visible := m.visibleItemsFromOffset(m.offset)
 					if m.cursor >= m.offset+visible {
 						m.offset = m.cursor - visible + 1
 					}
@@ -584,11 +597,6 @@ func (m Model) renderPipelinesPane(width, height int) string {
 	showProject := !showGroupHeaders
 	availableLines := max(height-lipgloss.Height(header), 0)
 
-	seenRefs := make(map[string]bool)
-	for i := range pipelines[:m.offset] {
-		seenRefs[pipelines[i].Pipeline.ProjectID+":"+pipelines[i].Pipeline.Ref] = true
-	}
-
 	rows := make([]string, 0, m.visibleItemsFromOffset(m.offset)+len(groups))
 	linesUsed := 0
 	currentGroupIdx := 0
@@ -609,10 +617,7 @@ func (m Model) renderPipelinesPane(width, height int) string {
 		}
 
 		selected := i == m.cursor
-		key := pipelines[i].Pipeline.ProjectID + ":" + pipelines[i].Pipeline.Ref
-		dimmed := seenRefs[key]
-		seenRefs[key] = true
-		item := renderPipelineItem(pipelines[i], width, selected, dimmed, showProject)
+		item := renderPipelineItem(pipelines[i], width, selected, showProject)
 		itemLines := lipgloss.Height(item)
 		if linesUsed+itemLines > availableLines {
 			break
@@ -652,7 +657,7 @@ func (m Model) renderStatusBar() string {
 	return statusBarStyle.Width(m.width).Render(content)
 }
 
-func renderPipelineItem(p PipelineRow, width int, selected, dimmed, showProject bool) string {
+func renderPipelineItem(p PipelineRow, width int, selected, showProject bool) string {
 	innerWidth := max(width-4, 20)
 	iconWidth := 3
 	timeWidth := 12
@@ -685,13 +690,8 @@ func renderPipelineItem(p PipelineRow, width int, selected, dimmed, showProject 
 		return buildRows(icon, mid1+strings.Repeat(" ", gap1)+timeStr, mid2+strings.Repeat(" ", gap2))
 	}
 
-	if dimmed {
-		icon := dimStyle.Render(statusIconRaw(p.Pipeline.Status))
-		return buildRows(icon, dimStyle.Render(mid1+strings.Repeat(" ", gap1)+timeStr), dimStyle.Render(mid2+strings.Repeat(" ", gap2)))
-	}
-
 	icon := statusIconCompact(p.Pipeline.Status)
-	return buildRows(icon, mid1+strings.Repeat(" ", gap1)+timeStr, dimStyle.Render(mid2+strings.Repeat(" ", gap2)))
+	return buildRows(icon, mid1+strings.Repeat(" ", gap1)+timeStr, mid2+strings.Repeat(" ", gap2))
 }
 
 func renderGroupHeader(project string, count int, width int) string {

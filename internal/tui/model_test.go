@@ -144,19 +144,14 @@ func TestRenderPipelineItem(t *testing.T) {
 		},
 	}
 
-	got := renderPipelineItem(row, 80, false, false, true)
+	got := renderPipelineItem(row, 80, false, true)
 	if got == "" {
 		t.Fatal("renderPipelineItem returned empty string")
 	}
 
-	selected := renderPipelineItem(row, 80, true, false, true)
+	selected := renderPipelineItem(row, 80, true, true)
 	if selected == "" {
 		t.Fatal("renderPipelineItem (selected) returned empty string")
-	}
-
-	dimmed := renderPipelineItem(row, 80, false, true, true)
-	if dimmed == "" {
-		t.Fatal("renderPipelineItem (dimmed) returned empty string")
 	}
 }
 
@@ -173,8 +168,8 @@ func TestRenderPipelineItem_NoProject(t *testing.T) {
 		},
 	}
 
-	compact := renderPipelineItem(row, 80, false, false, false)
-	full := renderPipelineItem(row, 80, false, false, true)
+	compact := renderPipelineItem(row, 80, false, false)
+	full := renderPipelineItem(row, 80, false, true)
 
 	if strings.Contains(compact, row.Pipeline.Project) {
 		t.Error("expected no project name when showProject=false")
@@ -556,11 +551,11 @@ func TestRenderPipelineItemWidths(t *testing.T) {
 	}
 
 	for _, width := range []int{40, 60, 80, 120} {
-		got := renderPipelineItem(row, width, false, false, true)
+		got := renderPipelineItem(row, width, false, true)
 		if got == "" {
 			t.Errorf("renderPipelineItem(width=%d, selected=false) returned empty", width)
 		}
-		got = renderPipelineItem(row, width, true, false, true)
+		got = renderPipelineItem(row, width, true, true)
 		if got == "" {
 			t.Errorf("renderPipelineItem(width=%d, selected=true) returned empty", width)
 		}
@@ -909,6 +904,67 @@ func TestQuitKey(t *testing.T) {
 
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+func TestNavigateDown_GroupedMode(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		width:          80,
+		height:         10,
+		showLatestOnly: false,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "alpha", Ref: "main", SHA: "aaa11111", UpdatedAt: now.Add(-4 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "10", Project: "alpha", Ref: "feat", SHA: "aaa22222", UpdatedAt: now.Add(-3 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "3", ProjectID: "20", Project: "beta", Ref: "main", SHA: "bbb11111", UpdatedAt: now.Add(-2 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "4", ProjectID: "20", Project: "beta", Ref: "dev", SHA: "bbb22222", UpdatedAt: now.Add(-1 * time.Minute)}},
+		},
+		cursor: 0,
+		offset: 0,
+		focus:  PanePipelines,
+	}
+
+	for i := 0; i < 3; i++ {
+		result, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		m = result.(Model)
+	}
+
+	if m.cursor >= len(m.visiblePipelines()) {
+		t.Errorf("cursor %d should not exceed visible pipelines %d", m.cursor, len(m.visiblePipelines()))
+	}
+	if m.cursor < m.offset {
+		t.Errorf("cursor %d should not be less than offset %d", m.cursor, m.offset)
+	}
+}
+
+func TestToggleMode_PreservesCursorPipeline(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		width:          80,
+		height:         30,
+		showLatestOnly: true,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "alpha", Ref: "main", UpdatedAt: now.Add(-4 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "10", Project: "alpha", Ref: "feat", UpdatedAt: now.Add(-3 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "3", ProjectID: "20", Project: "beta", Ref: "main", UpdatedAt: now.Add(-2 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "4", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-1 * time.Minute)}},
+		},
+		cursor: 2,
+		focus:  PanePipelines,
+	}
+
+	preservedID := m.visiblePipelines()[m.cursor].Pipeline.ID
+
+	result, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	m = result.(Model)
+
+	if m.cursor >= len(m.visiblePipelines()) {
+		t.Errorf("cursor out of bounds after toggle: %d >= %d", m.cursor, len(m.visiblePipelines()))
+		return
+	}
+
+	if m.visiblePipelines()[m.cursor].Pipeline.ID != preservedID {
+		t.Errorf("cursor should preserve pipeline ID %q, got %q", preservedID, m.visiblePipelines()[m.cursor].Pipeline.ID)
+	}
 }
 
 func TestVisiblePipelines_AllMode_GroupedByProject(t *testing.T) {
