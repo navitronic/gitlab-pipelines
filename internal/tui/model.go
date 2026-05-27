@@ -133,7 +133,7 @@ func (m Model) visiblePipelines() []PipelineRow {
 		}
 	}
 
-	// Stable sort: by (max UpdatedAt desc, ProjectID asc)
+	// Stable sort: by (max UpdatedAt desc, Project path asc)
 	// This groups by project and orders groups by recency, while preserving
 	// chronological order within each group (due to stable sort)
 	result := make([]PipelineRow, len(m.pipelines))
@@ -261,6 +261,10 @@ func (m Model) visibleItemsFromOffset(offset int) int {
 	count := 0
 
 	for i := offset; i < len(pipelines); i++ {
+		for currentGroupIdx < len(groups) && i >= groups[currentGroupIdx].Start+groups[currentGroupIdx].Count {
+			currentGroupIdx++
+		}
+
 		if showGroupHeaders && currentGroupIdx < len(groups) && i == groups[currentGroupIdx].Start {
 			header := renderGroupHeader(groups[currentGroupIdx].Project, groups[currentGroupIdx].Count, width)
 			headerLines := lipgloss.Height(header)
@@ -605,6 +609,10 @@ func (m Model) renderPipelinesPane(width, height int) string {
 	}
 
 	for i := m.offset; i < len(pipelines); i++ {
+		for currentGroupIdx < len(groups) && i >= groups[currentGroupIdx].Start+groups[currentGroupIdx].Count {
+			currentGroupIdx++
+		}
+
 		if showGroupHeaders && currentGroupIdx < len(groups) && i == groups[currentGroupIdx].Start {
 			groupHeader := renderGroupHeader(groups[currentGroupIdx].Project, groups[currentGroupIdx].Count, width)
 			headerLines := lipgloss.Height(groupHeader)

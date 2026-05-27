@@ -1191,6 +1191,38 @@ func TestRenderPipelinesPane_WithHeaders(t *testing.T) {
 	}
 }
 
+func TestRenderPipelinesPane_ScrolledIntoGroup_ShowsLaterHeaders(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		width:          80,
+		height:         40,
+		showLatestOnly: false,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "a1", ProjectID: "10", Project: "alpha", Ref: "main", UpdatedAt: now.Add(-20 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "b1", ProjectID: "20", Project: "beta", Ref: "main", UpdatedAt: now.Add(-5 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "a2", ProjectID: "10", Project: "alpha", Ref: "feat", UpdatedAt: now.Add(-21 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "b2", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-4 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "a3", ProjectID: "10", Project: "alpha", Ref: "fix", UpdatedAt: now.Add(-22 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "b3", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-3 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "a4", ProjectID: "10", Project: "alpha", Ref: "fix", UpdatedAt: now.Add(-23 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "b4", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-2 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "a5", ProjectID: "10", Project: "alpha", Ref: "fix", UpdatedAt: now.Add(-24 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "b5", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-1 * time.Minute)}},
+		},
+		focus:  PanePipelines,
+		cursor: 3,
+		offset: 3,
+	}
+
+	got := m.renderPipelinesPane(80, 40)
+
+	// offset starts mid first group; we must still render later group headers.
+	if !strings.Contains(got, "▸ alpha (5)") {
+		t.Fatalf("expected later group header to render when scrolled mid-group; output:\n%s", got)
+	}
+}
+
+
 func TestSingleGroupNoHeader(t *testing.T) {
 	now := time.Now()
 	m := Model{
