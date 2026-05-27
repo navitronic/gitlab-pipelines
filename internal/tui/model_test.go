@@ -143,14 +143,19 @@ func TestRenderPipelineItem(t *testing.T) {
 		},
 	}
 
-	got := renderPipelineItem(row, 80, false)
+	got := renderPipelineItem(row, 80, false, false)
 	if got == "" {
 		t.Fatal("renderPipelineItem returned empty string")
 	}
 
-	selected := renderPipelineItem(row, 80, true)
+	selected := renderPipelineItem(row, 80, true, false)
 	if selected == "" {
 		t.Fatal("renderPipelineItem (selected) returned empty string")
+	}
+
+	dimmed := renderPipelineItem(row, 80, false, true)
+	if dimmed == "" {
+		t.Fatal("renderPipelineItem (dimmed) returned empty string")
 	}
 }
 
@@ -523,11 +528,11 @@ func TestRenderPipelineItemWidths(t *testing.T) {
 	}
 
 	for _, width := range []int{40, 60, 80, 120} {
-		got := renderPipelineItem(row, width, false)
+		got := renderPipelineItem(row, width, false, false)
 		if got == "" {
 			t.Errorf("renderPipelineItem(width=%d, selected=false) returned empty", width)
 		}
-		got = renderPipelineItem(row, width, true)
+		got = renderPipelineItem(row, width, true, false)
 		if got == "" {
 			t.Errorf("renderPipelineItem(width=%d, selected=true) returned empty", width)
 		}
@@ -876,4 +881,131 @@ func TestQuitKey(t *testing.T) {
 
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+func TestVisiblePipelines_AllMode_GroupedByProject(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		width:         120,
+		height:        24,
+		showLatestOnly: false,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "alpha", Ref: "main", UpdatedAt: now.Add(-10 * time.Second)}},
+			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "20", Project: "beta", Ref: "main", UpdatedAt: now.Add(-5 * time.Second)}},
+			{Pipeline: pipeline.Pipeline{ID: "3", ProjectID: "10", Project: "alpha", Ref: "feat", UpdatedAt: now.Add(-3 * time.Second)}},
+			{Pipeline: pipeline.Pipeline{ID: "4", ProjectID: "20", Project: "beta", Ref: "dev", UpdatedAt: now.Add(-1 * time.Second)}},
+		},
+	}
+
+	visible := m.visiblePipelines()
+
+	// Should have 4 pipelines (no deduplication in "all" mode)
+	if len(visible) != 4 {
+		t.Errorf("expected 4 visible pipelines, got %d", len(visible))
+	}
+
+	// Groups should be ordered by most recent pipeline per project
+	// beta has most recent at now-1s, alpha has most recent at now-3s
+	// So beta should come first
+	if visible[0].Pipeline.Project != "beta" {
+		t.Errorf("first group should be beta (most recent), got %s", visible[0].Pipeline.Project)
+	}
+	if visible[2].Pipeline.Project != "alpha" {
+		t.Errorf("second group should be alpha, got %s", visible[2].Pipeline.Project)
+	}
+
+	// Within each group, maintain original order (stable sort preserves it)
+	// Beta group: ID 2 comes before ID 4 (original order)
+	if visible[0].Pipeline.ID != "2" {
+		t.Errorf("first beta pipeline should be ID 2, got %s", visible[0].Pipeline.ID)
+	}
+	if visible[1].Pipeline.ID != "4" {
+		t.Errorf("second beta pipeline should be ID 4, got %s", visible[1].Pipeline.ID)
+	}
+
+	// Alpha group: ID 1 comes before ID 3 (original order)
+	if visible[2].Pipeline.ID != "1" {
+		t.Errorf("first alpha pipeline should be ID 1, got %s", visible[2].Pipeline.ID)
+	}
+	if visible[3].Pipeline.ID != "3" {
+		t.Errorf("second alpha pipeline should be ID 3, got %s", visible[3].Pipeline.ID)
+	}
+}
+
+func TestPipelineGroups(t *testing.T) {
+	now := time.Now()
+	tests := []struct {
+		name      string
+		pipelines []PipelineRow
+		want      []PipelineGroup
+	}{
+		{
+			name:      "empty pipelines",
+			pipelines: []PipelineRow{},
+			want:      []PipelineGroup{},
+		},
+		{
+			name: "single pipeline",
+			pipelines: []PipelineRow{
+				{Pipeline: pipeline.Pipeline{ID: "1", Project: "alpha", UpdatedAt: now}},
+			},
+			want: []PipelineGroup{
+				{Project: "alpha", Start: 0, Count: 1},
+			},
+		},
+		{
+			name: "single project multiple pipelines",
+			pipelines: []PipelineRow{
+				{Pipeline: pipeline.Pipeline{ID: "1", Project: "alpha", UpdatedAt: now}},
+				{Pipeline: pipeline.Pipeline{ID: "2", Project: "alpha", UpdatedAt: now}},
+				{Pipeline: pipeline.Pipeline{ID: "3", Project: "alpha", UpdatedAt: now}},
+			},
+			want: []PipelineGroup{
+				{Project: "alpha", Start: 0, Count: 3},
+			},
+		},
+		{
+			name: "two projects grouped",
+			pipelines: []PipelineRow{
+				{Pipeline: pipeline.Pipeline{ID: "1", Project: "beta", UpdatedAt: now.Add(-1 * time.Second)}},
+				{Pipeline: pipeline.Pipeline{ID: "2", Project: "beta", UpdatedAt: now.Add(-2 * time.Second)}},
+				{Pipeline: pipeline.Pipeline{ID: "3", Project: "alpha", UpdatedAt: now.Add(-3 * time.Second)}},
+				{Pipeline: pipeline.Pipeline{ID: "4", Project: "alpha", UpdatedAt: now.Add(-4 * time.Second)}},
+			},
+			want: []PipelineGroup{
+				{Project: "beta", Start: 0, Count: 2},
+				{Project: "alpha", Start: 2, Count: 2},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				width:         120,
+				height:        24,
+				showLatestOnly: false,
+				pipelines:     tt.pipelines,
+			}
+
+			got := m.pipelineGroups()
+
+			if len(got) != len(tt.want) {
+				t.Errorf("pipelineGroups() returned %d groups, want %d", len(got), len(tt.want))
+				return
+			}
+
+			for i, g := range got {
+				if g.Project != tt.want[i].Project {
+					t.Errorf("group %d: Project = %q, want %q", i, g.Project, tt.want[i].Project)
+				}
+				if g.Start != tt.want[i].Start {
+					t.Errorf("group %d: Start = %d, want %d", i, g.Start, tt.want[i].Start)
+				}
+				if g.Count != tt.want[i].Count {
+					t.Errorf("group %d: Count = %d, want %d", i, g.Count, tt.want[i].Count)
+				}
+			}
+		})
+	}
 }

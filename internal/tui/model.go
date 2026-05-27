@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -57,26 +58,35 @@ type PipelineRow struct {
 	Pipeline pipeline.Pipeline
 }
 
+// PipelineGroup marks a group boundary in the flat pipeline list.
+// Used for hierarchical display when grouping by project.
+type PipelineGroup struct {
+	Project string // Project name (e.g., "group/project")
+	Start   int    // Index of first pipeline in this group
+	Count   int    // Number of pipelines in this group
+}
+
 // Model is the top-level Bubble Tea model.
 type Model struct {
-	spinner       spinner.Model
-	pipelines     []PipelineRow
-	cursor        int
-	offset        int
-	focus         Pane
-	loading       bool
-	loadingStatus string
-	err           error
-	width         int
-	height        int
-	detail        *DetailModel
-	detailTicking bool
-	selectedID    string
-	FetchJobs     func(projectID, pipelineID string) tea.Cmd
-	FetchPipeline func(projectID, pipelineID string) tea.Cmd
-	FetchMR       func(projectID, pipelineID, ref string) tea.Cmd
-	Refresh       func() tea.Cmd
-	HardRefresh   func() tea.Cmd
+	spinner        spinner.Model
+	pipelines      []PipelineRow
+	cursor         int
+	offset         int
+	focus          Pane
+	loading        bool
+	loadingStatus  string
+	err            error
+	width          int
+	height         int
+	detail         *DetailModel
+	detailTicking  bool
+	selectedID     string
+	showLatestOnly bool
+	FetchJobs      func(projectID, pipelineID string) tea.Cmd
+	FetchPipeline  func(projectID, pipelineID string) tea.Cmd
+	FetchMR        func(projectID, pipelineID, ref string) tea.Cmd
+	Refresh        func() tea.Cmd
+	HardRefresh    func() tea.Cmd
 }
 
 // New creates a new TUI model in loading state.
@@ -86,16 +96,98 @@ func New() Model {
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 
 	return Model{
-		spinner: s,
-		loading: true,
-		focus:   PanePipelines,
-		width:   120,
-		height:  24,
+		spinner:        s,
+		loading:        true,
+		showLatestOnly: true,
+		focus:          PanePipelines,
+		width:          120,
+		height:         24,
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(m.spinner.Tick, scheduleRefresh())
+}
+
+func (m Model) visiblePipelines() []PipelineRow {
+	if m.showLatestOnly {
+		seen := make(map[string]bool)
+		var result []PipelineRow
+		for _, row := range m.pipelines {
+			key := row.Pipeline.ProjectID + ":" + row.Pipeline.Ref
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			result = append(result, row)
+		}
+		return result
+	}
+
+	// In "all" mode: group by project, ordered by most recent pipeline per project
+	// First, compute max UpdatedAt per project
+	maxUpdatedPerProject := make(map[string]time.Time)
+	for _, row := range m.pipelines {
+		if row.Pipeline.UpdatedAt.After(maxUpdatedPerProject[row.Pipeline.Project]) {
+			maxUpdatedPerProject[row.Pipeline.Project] = row.Pipeline.UpdatedAt
+		}
+	}
+
+	// Stable sort: by (max UpdatedAt desc, ProjectID asc)
+	// This groups by project and orders groups by recency, while preserving
+	// chronological order within each group (due to stable sort)
+	result := make([]PipelineRow, len(m.pipelines))
+	copy(result, m.pipelines)
+	sort.SliceStable(result, func(i, j int) bool {
+		projI := result[i].Pipeline.Project
+		projJ := result[j].Pipeline.Project
+		if projI != projJ {
+			// Different projects: order by max UpdatedAt desc
+			maxI := maxUpdatedPerProject[projI]
+			maxJ := maxUpdatedPerProject[projJ]
+			if !maxI.Equal(maxJ) {
+				return maxI.After(maxJ)
+			}
+			// Same max time: order by ProjectID asc
+			return projI < projJ
+		}
+		// Same project: preserve original order (stable sort)
+		return false
+	})
+	return result
+}
+
+func (m Model) pipelineGroups() []PipelineGroup {
+	visible := m.visiblePipelines()
+	if len(visible) == 0 {
+		return []PipelineGroup{}
+	}
+
+	var groups []PipelineGroup
+	currentProject := visible[0].Pipeline.Project
+	startIdx := 0
+
+	for i, row := range visible {
+		if row.Pipeline.Project != currentProject {
+			// End current group, start new one
+			groups = append(groups, PipelineGroup{
+				Project: currentProject,
+				Start:   startIdx,
+				Count:   i - startIdx,
+			})
+			currentProject = row.Pipeline.Project
+			startIdx = i
+		}
+	}
+
+	// Add final group
+	groups = append(groups, PipelineGroup{
+		Project: currentProject,
+		Start:   startIdx,
+		Count:   len(visible) - startIdx,
+	})
+
+	return groups
 }
 
 func scheduleRefresh() tea.Cmd {
@@ -140,12 +232,13 @@ func (m Model) visibleItems() int {
 }
 
 func (m Model) selectPipeline() (Model, tea.Cmd) {
-	if len(m.pipelines) == 0 {
+	visible := m.visiblePipelines()
+	if len(visible) == 0 {
 		m.detail = nil
 		m.selectedID = ""
 		return m, nil
 	}
-	row := m.pipelines[m.cursor]
+	row := visible[m.cursor]
 	if row.Pipeline.ID == m.selectedID {
 		return m, nil
 	}
@@ -189,6 +282,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					openBrowser(url)
 				}
 			}
+		case "a":
+			m.showLatestOnly = !m.showLatestOnly
+			visible := m.visiblePipelines()
+			if m.cursor >= len(visible) {
+				m.cursor = max(0, len(visible)-1)
+			}
+			if m.offset > m.cursor {
+				m.offset = m.cursor
+			}
+			m.detail = nil
+			m.selectedID = ""
+			return m.selectPipeline()
 		case "left", "h":
 			if m.focus > PanePipelines {
 				m.focus--
@@ -220,7 +325,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "j":
 			switch m.focus {
 			case PanePipelines:
-				if m.cursor < len(m.pipelines)-1 {
+				if m.cursor < len(m.visiblePipelines())-1 {
 					m.cursor++
 					visible := m.visibleItems()
 					if m.cursor >= m.offset+visible {
@@ -263,8 +368,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = nil
 		m.pipelines = msg.Pipelines
-		if m.cursor >= len(m.pipelines) {
-			m.cursor = max(0, len(m.pipelines)-1)
+		visible := m.visiblePipelines()
+		if m.cursor >= len(visible) {
+			m.cursor = max(0, len(visible)-1)
 		}
 		if m.offset > m.cursor {
 			m.offset = m.cursor
@@ -413,13 +519,22 @@ func (m Model) paneBox(content string, width, height int, focused, borderLeft bo
 func (m Model) renderPipelinesPane(width, height int) string {
 	header := listTitleStyle.Render("Pipelines")
 
-	visible := m.visibleItems()
-	end := min(m.offset+visible, len(m.pipelines))
+	pipelines := m.visiblePipelines()
+	visibleCount := m.visibleItems()
+	end := min(m.offset+visibleCount, len(pipelines))
+
+	seenRefs := make(map[string]bool)
+	for i := 0; i < m.offset; i++ {
+		seenRefs[pipelines[i].Pipeline.ProjectID+":"+pipelines[i].Pipeline.Ref] = true
+	}
 
 	var rows []string
 	for i := m.offset; i < end; i++ {
 		selected := i == m.cursor
-		rows = append(rows, renderPipelineItem(m.pipelines[i], width, selected))
+		key := pipelines[i].Pipeline.ProjectID + ":" + pipelines[i].Pipeline.Ref
+		dimmed := seenRefs[key]
+		seenRefs[key] = true
+		rows = append(rows, renderPipelineItem(pipelines[i], width, selected, dimmed))
 	}
 
 	listContent := header + "\n" + strings.Join(rows, "\n")
@@ -442,13 +557,18 @@ func (m Model) renderPipelinesPane(width, height int) string {
 func (m Model) renderStatusBar() string {
 	var parts []string
 	parts = append(parts, "↑/↓: navigate", "o: open")
+	if m.showLatestOnly {
+		parts = append(parts, "a: show all")
+	} else {
+		parts = append(parts, "a: latest only")
+	}
 	parts = append(parts, "r: refresh", "R: hard refresh", "q: quit")
 	center := strings.Join(parts, " • ")
 	content := lipgloss.PlaceHorizontal(m.width, lipgloss.Center, center)
 	return statusBarStyle.Width(m.width).Render(content)
 }
 
-func renderPipelineItem(p PipelineRow, width int, selected bool) string {
+func renderPipelineItem(p PipelineRow, width int, selected, dimmed bool) string {
 	innerWidth := max(width-4, 20)
 	iconWidth := 3
 	timeWidth := 12
@@ -471,6 +591,14 @@ func renderPipelineItem(p PipelineRow, width int, selected bool) string {
 		pad := lipgloss.Width(icon) + 1
 		row1 := icon + " " + mid1 + strings.Repeat(" ", gap1) + timeStr
 		row2 := strings.Repeat(" ", pad) + mid2 + strings.Repeat(" ", gap2)
+		return itemStyle.Render(row1 + "\n" + row2)
+	}
+
+	if dimmed {
+		icon := dimStyle.Render(statusIconRaw(p.Pipeline.Status))
+		pad := lipgloss.Width(statusIconRaw(p.Pipeline.Status)) + 1
+		row1 := icon + " " + dimStyle.Render(mid1+strings.Repeat(" ", gap1)+timeStr)
+		row2 := strings.Repeat(" ", pad) + dimStyle.Render(mid2+strings.Repeat(" ", gap2))
 		return itemStyle.Render(row1 + "\n" + row2)
 	}
 

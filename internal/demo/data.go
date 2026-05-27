@@ -34,6 +34,22 @@ func Pipelines() []pipeline.Pipeline {
 			CreatedAt: now.Add(-45 * time.Minute), UpdatedAt: now.Add(-40 * time.Minute),
 			Duration: 2*time.Minute + 47*time.Second,
 		},
+		{
+			ID: "48280", ProjectID: "112", Project: "acme/frontend",
+			Ref: "main", SHA: "9f8e7d6c5b4a3928",
+			Status: pipeline.StatusPassed, Source: "push",
+			WebURL:    "https://gitlab.com/acme/frontend/-/pipelines/48280",
+			CreatedAt: now.Add(-1 * time.Hour), UpdatedAt: now.Add(-55 * time.Minute),
+			Duration: 4*time.Minute + 5*time.Second,
+		},
+		{
+			ID: "48278", ProjectID: "112", Project: "acme/frontend",
+			Ref: "feat/dark-mode", SHA: "71a2b3c4d5e6f708",
+			Status: pipeline.StatusFailed, Source: "push",
+			WebURL:    "https://gitlab.com/acme/frontend/-/pipelines/48278",
+			CreatedAt: now.Add(-1*time.Hour - 20*time.Minute), UpdatedAt: now.Add(-1*time.Hour - 15*time.Minute),
+			Duration: 3*time.Minute + 10*time.Second,
+		},
 
 		// acme/api-gateway
 		{
