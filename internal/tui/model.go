@@ -231,6 +231,65 @@ func (m Model) visibleItems() int {
 	return available / 4
 }
 
+func (m Model) visibleItemsFromOffset(offset int) int {
+	pipelines := m.visiblePipelines()
+	if offset < 0 || offset >= len(pipelines) {
+		return 0
+	}
+
+	width := m.pipelinesPaneWidth()
+	if width <= 0 {
+		width = m.width
+	}
+
+	header := listTitleStyle.Render("Pipelines")
+	paneHeight := max(m.height-1, 1)
+	availableLines := max(paneHeight-lipgloss.Height(header), 0)
+	if availableLines == 0 {
+		return 0
+	}
+
+	groups := m.pipelineGroups()
+	showGroupHeaders := !m.showLatestOnly && len(groups) > 1
+	showProject := !showGroupHeaders
+	currentGroupIdx := 0
+	for currentGroupIdx < len(groups) && offset >= groups[currentGroupIdx].Start+groups[currentGroupIdx].Count {
+		currentGroupIdx++
+	}
+
+	linesUsed := 0
+	count := 0
+	seenRefs := make(map[string]bool)
+	for i := range pipelines[:offset] {
+		seenRefs[pipelines[i].Pipeline.ProjectID+":"+pipelines[i].Pipeline.Ref] = true
+	}
+
+	for i := offset; i < len(pipelines); i++ {
+		if showGroupHeaders && currentGroupIdx < len(groups) && i == groups[currentGroupIdx].Start {
+			header := renderGroupHeader(groups[currentGroupIdx].Project, groups[currentGroupIdx].Count, width)
+			headerLines := lipgloss.Height(header)
+			if linesUsed+headerLines > availableLines {
+				break
+			}
+			linesUsed += headerLines
+			currentGroupIdx++
+		}
+
+		key := pipelines[i].Pipeline.ProjectID + ":" + pipelines[i].Pipeline.Ref
+		dimmed := seenRefs[key]
+		seenRefs[key] = true
+		item := renderPipelineItem(pipelines[i], width, i == m.cursor, dimmed, showProject)
+		itemLines := lipgloss.Height(item)
+		if linesUsed+itemLines > availableLines {
+			break
+		}
+		linesUsed += itemLines
+		count++
+	}
+
+	return count
+}
+
 func (m Model) selectPipeline() (Model, tea.Cmd) {
 	visible := m.visiblePipelines()
 	if len(visible) == 0 {
@@ -520,21 +579,46 @@ func (m Model) renderPipelinesPane(width, height int) string {
 	header := listTitleStyle.Render("Pipelines")
 
 	pipelines := m.visiblePipelines()
-	visibleCount := m.visibleItems()
-	end := min(m.offset+visibleCount, len(pipelines))
+	groups := m.pipelineGroups()
+	showGroupHeaders := !m.showLatestOnly && len(groups) > 1
+	showProject := !showGroupHeaders
+	availableLines := max(height-lipgloss.Height(header), 0)
 
 	seenRefs := make(map[string]bool)
-	for i := 0; i < m.offset; i++ {
+	for i := range pipelines[:m.offset] {
 		seenRefs[pipelines[i].Pipeline.ProjectID+":"+pipelines[i].Pipeline.Ref] = true
 	}
 
-	var rows []string
-	for i := m.offset; i < end; i++ {
+	rows := make([]string, 0, m.visibleItemsFromOffset(m.offset)+len(groups))
+	linesUsed := 0
+	currentGroupIdx := 0
+	for currentGroupIdx < len(groups) && m.offset >= groups[currentGroupIdx].Start+groups[currentGroupIdx].Count {
+		currentGroupIdx++
+	}
+
+	for i := m.offset; i < len(pipelines); i++ {
+		if showGroupHeaders && currentGroupIdx < len(groups) && i == groups[currentGroupIdx].Start {
+			groupHeader := renderGroupHeader(groups[currentGroupIdx].Project, groups[currentGroupIdx].Count, width)
+			headerLines := lipgloss.Height(groupHeader)
+			if linesUsed+headerLines > availableLines {
+				break
+			}
+			rows = append(rows, groupHeader)
+			linesUsed += headerLines
+			currentGroupIdx++
+		}
+
 		selected := i == m.cursor
 		key := pipelines[i].Pipeline.ProjectID + ":" + pipelines[i].Pipeline.Ref
 		dimmed := seenRefs[key]
 		seenRefs[key] = true
-		rows = append(rows, renderPipelineItem(pipelines[i], width, selected, dimmed))
+		item := renderPipelineItem(pipelines[i], width, selected, dimmed, showProject)
+		itemLines := lipgloss.Height(item)
+		if linesUsed+itemLines > availableLines {
+			break
+		}
+		rows = append(rows, item)
+		linesUsed += itemLines
 	}
 
 	listContent := header + "\n" + strings.Join(rows, "\n")
@@ -568,7 +652,7 @@ func (m Model) renderStatusBar() string {
 	return statusBarStyle.Width(m.width).Render(content)
 }
 
-func renderPipelineItem(p PipelineRow, width int, selected, dimmed bool) string {
+func renderPipelineItem(p PipelineRow, width int, selected, dimmed, showProject bool) string {
 	innerWidth := max(width-4, 20)
 	iconWidth := 3
 	timeWidth := 12
@@ -585,50 +669,50 @@ func renderPipelineItem(p PipelineRow, width int, selected, dimmed bool) string 
 
 	gap1 := max(innerWidth-iconWidth-lipgloss.Width(mid1)-lipgloss.Width(timeStr), 0)
 	gap2 := max(innerWidth-iconWidth-lipgloss.Width(mid2), 0)
+	buildRows := func(icon, row1Text, row2Text string) string {
+		row1 := icon + " " + row1Text
+		if !showProject {
+			return itemStyle.Render(row1)
+		}
+
+		pad := lipgloss.Width(statusIconRaw(p.Pipeline.Status)) + 1
+		row2 := strings.Repeat(" ", pad) + row2Text
+		return itemStyle.Render(row1 + "\n" + row2)
+	}
 
 	if selected {
 		icon := statusIconRaw(p.Pipeline.Status)
-		pad := lipgloss.Width(icon) + 1
-		row1 := icon + " " + mid1 + strings.Repeat(" ", gap1) + timeStr
-		row2 := strings.Repeat(" ", pad) + mid2 + strings.Repeat(" ", gap2)
-		return itemStyle.Render(row1 + "\n" + row2)
+		return buildRows(icon, mid1+strings.Repeat(" ", gap1)+timeStr, mid2+strings.Repeat(" ", gap2))
 	}
 
 	if dimmed {
 		icon := dimStyle.Render(statusIconRaw(p.Pipeline.Status))
-		pad := lipgloss.Width(statusIconRaw(p.Pipeline.Status)) + 1
-		row1 := icon + " " + dimStyle.Render(mid1+strings.Repeat(" ", gap1)+timeStr)
-		row2 := strings.Repeat(" ", pad) + dimStyle.Render(mid2+strings.Repeat(" ", gap2))
-		return itemStyle.Render(row1 + "\n" + row2)
+		return buildRows(icon, dimStyle.Render(mid1+strings.Repeat(" ", gap1)+timeStr), dimStyle.Render(mid2+strings.Repeat(" ", gap2)))
 	}
 
 	icon := statusIconCompact(p.Pipeline.Status)
-	pad := lipgloss.Width(icon) + 1
-	row1 := icon + " " + mid1 + strings.Repeat(" ", gap1) + timeStr
-	row2 := strings.Repeat(" ", pad) + dimStyle.Render(mid2+strings.Repeat(" ", gap2))
-
-	return itemStyle.Render(row1 + "\n" + row2)
+	return buildRows(icon, mid1+strings.Repeat(" ", gap1)+timeStr, dimStyle.Render(mid2+strings.Repeat(" ", gap2)))
 }
 
 func renderGroupHeader(project string, count int, width int) string {
 	text := fmt.Sprintf("▸ %s (%d)", project, count)
-	
+
 	// If text fits within width, render and return
 	if lipgloss.Width(text) <= width {
 		return groupHeaderStyle.Render(text)
 	}
-	
+
 	// Truncate project name to fit within width
 	// Reserve space for: "▸ " (2) + " (N)" (3 + len(count_str))
 	countStr := fmt.Sprintf("%d", count)
 	reserved := 2 + 3 + len(countStr) // "▸ " + " ()" + count digits
 	maxProjectWidth := width - reserved
-	
+
 	if maxProjectWidth < 1 {
 		// Width too narrow, just return arrow and count
 		return groupHeaderStyle.Render(fmt.Sprintf("▸ (%s)", countStr))
 	}
-	
+
 	truncatedProject := truncateStr(project, maxProjectWidth)
 	text = fmt.Sprintf("▸ %s (%d)", truncatedProject, count)
 	return groupHeaderStyle.Render(text)

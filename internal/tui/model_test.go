@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/navitronic/gitlab-pipelines/internal/pipeline"
 )
 
@@ -143,19 +144,46 @@ func TestRenderPipelineItem(t *testing.T) {
 		},
 	}
 
-	got := renderPipelineItem(row, 80, false, false)
+	got := renderPipelineItem(row, 80, false, false, true)
 	if got == "" {
 		t.Fatal("renderPipelineItem returned empty string")
 	}
 
-	selected := renderPipelineItem(row, 80, true, false)
+	selected := renderPipelineItem(row, 80, true, false, true)
 	if selected == "" {
 		t.Fatal("renderPipelineItem (selected) returned empty string")
 	}
 
-	dimmed := renderPipelineItem(row, 80, false, true)
+	dimmed := renderPipelineItem(row, 80, false, true, true)
 	if dimmed == "" {
 		t.Fatal("renderPipelineItem (dimmed) returned empty string")
+	}
+}
+
+func TestRenderPipelineItem_NoProject(t *testing.T) {
+	row := PipelineRow{
+		Pipeline: pipeline.Pipeline{
+			ID:        "1",
+			ProjectID: "10",
+			Project:   "group/project",
+			SHA:       "abc123def456",
+			Ref:       "main",
+			Status:    pipeline.StatusPassed,
+			UpdatedAt: time.Now().Add(-5 * time.Minute),
+		},
+	}
+
+	compact := renderPipelineItem(row, 80, false, false, false)
+	full := renderPipelineItem(row, 80, false, false, true)
+
+	if strings.Contains(compact, row.Pipeline.Project) {
+		t.Error("expected no project name when showProject=false")
+	}
+	if !strings.Contains(compact, "abc123de") || !strings.Contains(compact, "main") {
+		t.Error("expected compact rendering to include SHA and ref")
+	}
+	if lipgloss.Height(compact) >= lipgloss.Height(full) {
+		t.Errorf("expected compact item to be shorter than full item, got compact=%d full=%d", lipgloss.Height(compact), lipgloss.Height(full))
 	}
 }
 
@@ -528,11 +556,11 @@ func TestRenderPipelineItemWidths(t *testing.T) {
 	}
 
 	for _, width := range []int{40, 60, 80, 120} {
-		got := renderPipelineItem(row, width, false, false)
+		got := renderPipelineItem(row, width, false, false, true)
 		if got == "" {
 			t.Errorf("renderPipelineItem(width=%d, selected=false) returned empty", width)
 		}
-		got = renderPipelineItem(row, width, true, false)
+		got = renderPipelineItem(row, width, true, false, true)
 		if got == "" {
 			t.Errorf("renderPipelineItem(width=%d, selected=true) returned empty", width)
 		}
@@ -886,8 +914,8 @@ func contains(s, substr string) bool {
 func TestVisiblePipelines_AllMode_GroupedByProject(t *testing.T) {
 	now := time.Now()
 	m := Model{
-		width:         120,
-		height:        24,
+		width:          120,
+		height:         24,
 		showLatestOnly: false,
 		pipelines: []PipelineRow{
 			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "alpha", Ref: "main", UpdatedAt: now.Add(-10 * time.Second)}},
@@ -982,10 +1010,10 @@ func TestPipelineGroups(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := Model{
-				width:         120,
-				height:        24,
+				width:          120,
+				height:         24,
 				showLatestOnly: false,
-				pipelines:     tt.pipelines,
+				pipelines:      tt.pipelines,
 			}
 
 			got := m.pipelineGroups()
@@ -1074,5 +1102,85 @@ func TestRenderGroupHeader(t *testing.T) {
 				t.Errorf("renderGroupHeader(%q, %d, %d) = %q, check failed", tt.project, tt.count, tt.width, got)
 			}
 		})
+	}
+}
+
+func TestRenderPipelinesPane_WithHeaders(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		width:          80,
+		height:         30,
+		showLatestOnly: false,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "alpha", Ref: "main", SHA: "aaa11111", UpdatedAt: now.Add(-2 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "10", Project: "alpha", Ref: "feat", SHA: "aaa22222", UpdatedAt: now.Add(-3 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "3", ProjectID: "20", Project: "beta", Ref: "main", SHA: "bbb11111", UpdatedAt: now.Add(-30 * time.Second)}},
+			{Pipeline: pipeline.Pipeline{ID: "4", ProjectID: "20", Project: "beta", Ref: "dev", SHA: "bbb22222", UpdatedAt: now.Add(-1 * time.Minute)}},
+		},
+	}
+
+	got := m.renderPipelinesPane(80, 30)
+
+	if !strings.Contains(got, "▸") {
+		t.Fatal("expected group headers in all mode with multiple projects")
+	}
+	if !strings.Contains(got, "alpha") || !strings.Contains(got, "beta") {
+		t.Fatal("expected both project names in headers")
+	}
+	if strings.Count(got, "▸") != 2 {
+		t.Fatalf("expected one header per project boundary, got %d headers", strings.Count(got, "▸"))
+	}
+	if strings.Count(got, "alpha") != 1 || strings.Count(got, "beta") != 1 {
+		t.Fatal("expected grouped rendering to suppress per-item project rows")
+	}
+}
+
+func TestSingleGroupNoHeader(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		width:          80,
+		height:         30,
+		showLatestOnly: false,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "alpha", Ref: "main", SHA: "aaa11111", UpdatedAt: now.Add(-2 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "10", Project: "alpha", Ref: "feat", SHA: "aaa22222", UpdatedAt: now.Add(-1 * time.Minute)}},
+		},
+	}
+
+	got := m.renderPipelinesPane(80, 30)
+
+	if strings.Contains(got, "▸") {
+		t.Fatal("expected no group header when only one project group exists")
+	}
+	if strings.Count(got, "alpha") < 2 {
+		t.Fatal("expected per-item project rows when headers are suppressed")
+	}
+}
+
+func TestVisibleItemsFromOffset(t *testing.T) {
+	now := time.Now()
+	m := Model{
+		width:          80,
+		height:         10,
+		showLatestOnly: false,
+		pipelines: []PipelineRow{
+			{Pipeline: pipeline.Pipeline{ID: "1", ProjectID: "10", Project: "alpha", Ref: "main", SHA: "aaa11111", UpdatedAt: now.Add(-4 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "2", ProjectID: "10", Project: "alpha", Ref: "feat", SHA: "aaa22222", UpdatedAt: now.Add(-3 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "3", ProjectID: "20", Project: "beta", Ref: "main", SHA: "bbb11111", UpdatedAt: now.Add(-2 * time.Minute)}},
+			{Pipeline: pipeline.Pipeline{ID: "4", ProjectID: "20", Project: "beta", Ref: "dev", SHA: "bbb22222", UpdatedAt: now.Add(-1 * time.Minute)}},
+		},
+	}
+
+	if got := m.visibleItemsFromOffset(0); got != 2 {
+		t.Errorf("visibleItemsFromOffset(0) = %d, want 2", got)
+	}
+	if got := m.visibleItemsFromOffset(1); got != 2 {
+		t.Errorf("visibleItemsFromOffset(1) = %d, want 2", got)
+	}
+	if got := m.visibleItemsFromOffset(2); got != 2 {
+		t.Errorf("visibleItemsFromOffset(2) = %d, want 2", got)
+	}
+	if got := m.visibleItemsFromOffset(3); got != 1 {
+		t.Errorf("visibleItemsFromOffset(3) = %d, want 1", got)
 	}
 }
