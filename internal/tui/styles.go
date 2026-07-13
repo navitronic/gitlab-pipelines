@@ -3,20 +3,24 @@ package tui
 import "github.com/charmbracelet/lipgloss"
 
 var (
-	listTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2).MarginTop(1)
+	listTitleStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2).MarginTop(1)
 	projectHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
 	refHeaderStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("69"))
 	treeStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	itemBaseStyle  = lipgloss.NewStyle().
-			PaddingLeft(2).
-			PaddingRight(2).
-			PaddingTop(1).
-			PaddingBottom(1)
+	itemBaseStyle      = lipgloss.NewStyle().
+				PaddingLeft(2).
+				PaddingRight(2).
+				PaddingTop(1).
+				PaddingBottom(1)
 	itemSelectedStyle = lipgloss.NewStyle().
 				PaddingLeft(2).
 				PaddingRight(2).
 				PaddingTop(1).
 				PaddingBottom(1).
+				Background(lipgloss.Color("238")).
+				Foreground(lipgloss.Color("229"))
+	itemTreeStyle         = lipgloss.NewStyle()
+	itemTreeSelectedStyle = lipgloss.NewStyle().
 				Background(lipgloss.Color("238")).
 				Foreground(lipgloss.Color("229"))
 	toastStyle = lipgloss.NewStyle().

@@ -1242,11 +1242,11 @@ func TestVisibleItemsFromOffset(t *testing.T) {
 		},
 	}
 
-	if got := m.visibleItemsFromOffset(0); got != 2 {
-		t.Errorf("visibleItemsFromOffset(0) = %d, want 2", got)
+	if got := m.visibleItemsFromOffset(0); got != 4 {
+		t.Errorf("visibleItemsFromOffset(0) = %d, want 4", got)
 	}
-	if got := m.visibleItemsFromOffset(1); got != 2 {
-		t.Errorf("visibleItemsFromOffset(1) = %d, want 2", got)
+	if got := m.visibleItemsFromOffset(1); got != 3 {
+		t.Errorf("visibleItemsFromOffset(1) = %d, want 3", got)
 	}
 	if got := m.visibleItemsFromOffset(2); got != 2 {
 		t.Errorf("visibleItemsFromOffset(2) = %d, want 2", got)

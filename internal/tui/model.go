@@ -742,16 +742,27 @@ func (m Model) renderStatusBar() string {
 }
 
 func renderPipelineItem(p PipelineRow, width int, selected bool, prefix string, grouped bool) string {
-	innerWidth := max(width-4, 20)
+	var itemStyle lipgloss.Style
+	if grouped {
+		itemStyle = itemTreeStyle.Width(width)
+		if selected {
+			itemStyle = itemTreeSelectedStyle.Width(width)
+		}
+	} else {
+		itemStyle = itemBaseStyle.Width(width)
+		if selected {
+			itemStyle = itemSelectedStyle.Width(width)
+		}
+	}
+
+	innerWidth := max(width, 20)
+	if !grouped {
+		innerWidth = max(width-4, 20) // account for padding in flat mode
+	}
 	prefixWidth := lipgloss.Width(prefix)
 	iconWidth := prefixWidth + 2
 	timeWidth := 12
 	midWidth := max(innerWidth-iconWidth-timeWidth, 8)
-
-	itemStyle := itemBaseStyle.Width(width)
-	if selected {
-		itemStyle = itemSelectedStyle.Width(width)
-	}
 
 	row1Content := shortSHA(p.Pipeline.SHA)
 	if !grouped {
