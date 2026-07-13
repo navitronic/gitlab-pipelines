@@ -197,6 +197,29 @@ func TestFetchUserMergeRequests_ParseError(t *testing.T) {
 	}
 }
 
+func TestFetchPipelines(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+	script := fakeGlabScriptWithArgs(t, dir, argsPath, `[{"id":1,"status":"running"}]`)
+
+	c := &Client{BinaryPath: script}
+	pipelines, err := c.FetchPipelines(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("reading args: %v", err)
+	}
+	want := "api projects/42/pipelines?order_by=id&sort=desc&per_page=100&page=1"
+	if string(args) != want {
+		t.Errorf("args = %q, want %q", string(args), want)
+	}
+}
+
 func TestFetchPipelinesByUser_NoUsername(t *testing.T) {
 	dir := t.TempDir()
 	response := `[{"id":1,"status":"running"}]`
@@ -210,6 +233,20 @@ func TestFetchPipelinesByUser_NoUsername(t *testing.T) {
 	if len(pipelines) != 1 {
 		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
 	}
+}
+
+func fakeGlabScriptWithArgs(t *testing.T, dir string, argsPath string, response string) string {
+	t.Helper()
+
+	var script string
+	if runtime.GOOS == "windows" {
+		script = filepath.Join(dir, "glab.bat")
+		os.WriteFile(script, []byte("@echo off\necho %* > "+argsPath+"\necho "+response+"\n"), 0o755)
+	} else {
+		script = filepath.Join(dir, "glab")
+		os.WriteFile(script, []byte("#!/bin/sh\nprintf '%s' \"$*\" > '"+argsPath+"'\necho '"+response+"'\n"), 0o755)
+	}
+	return script
 }
 
 func fakeGlabScript(t *testing.T, dir string, response string) string {

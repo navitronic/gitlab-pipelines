@@ -22,6 +22,12 @@ func (c *Client) FetchPipelinesByUser(ctx context.Context, projectID int, userna
 	return c.fetchPipelinesPaginated(ctx, endpoint)
 }
 
+// FetchPipelines fetches all pipelines for a project, ordered by most recently created.
+func (c *Client) FetchPipelines(ctx context.Context, projectID int) ([]gitlab.Pipeline, error) {
+	endpoint := fmt.Sprintf("projects/%d/pipelines?order_by=id&sort=desc&per_page=100", projectID)
+	return c.fetchPipelinesPaginated(ctx, endpoint)
+}
+
 // FetchPipeline fetches a single pipeline by ID.
 func (c *Client) FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error) {
 	endpoint := fmt.Sprintf("projects/%d/pipelines/%d", projectID, pipelineID)

@@ -2,6 +2,8 @@ package glab
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -56,6 +58,29 @@ func TestFetchProject(t *testing.T) {
 	}
 	if project.PathWithNamespace != "group/project" {
 		t.Errorf("expected path group/project, got %q", project.PathWithNamespace)
+	}
+}
+
+func TestFetchProjectByPath(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+	script := fakeGlabScriptWithArgs(t, dir, argsPath, `{"id":42,"path_with_namespace":"group/project"}`)
+
+	c := &Client{BinaryPath: script}
+	project, err := c.FetchProjectByPath(context.Background(), "group/project")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if project.ID != 42 {
+		t.Errorf("ID = %d, want 42", project.ID)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("reading args: %v", err)
+	}
+	want := "api projects/group%2Fproject"
+	if string(args) != want {
+		t.Errorf("args = %q, want %q", string(args), want)
 	}
 }
 

@@ -19,6 +19,8 @@ type GitLabClient interface {
 	CurrentUser(ctx context.Context) (*gitlab.User, error)
 	FetchUserEventsSince(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
 	FetchProject(ctx context.Context, projectID int) (*gitlab.Project, error)
+	FetchProjectByPath(ctx context.Context, projectPath string) (*gitlab.Project, error)
+	FetchPipelines(ctx context.Context, projectID int) ([]gitlab.Pipeline, error)
 	FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
 	FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
@@ -137,6 +139,29 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 		return all[i].CreatedAt.After(all[j].CreatedAt)
 	})
 	return all, nil
+}
+
+func (s *Service) ListProjectPipelines(ctx context.Context, projectPath string, progress func(string)) ([]pipeline.Pipeline, error) {
+	progress("fetching project...")
+	project, err := s.client.FetchProjectByPath(ctx, projectPath)
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+
+	progress("fetching pipelines...")
+	pipelines, err := s.client.FetchPipelines(ctx, project.ID)
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+
+	out := make([]pipeline.Pipeline, len(pipelines))
+	for i, p := range pipelines {
+		out[i] = convertPipeline(p, project.ID, project.PathWithNamespace)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out, nil
 }
 
 func (s *Service) GetPipeline(ctx context.Context, project string, id string) (pipeline.Pipeline, error) {
