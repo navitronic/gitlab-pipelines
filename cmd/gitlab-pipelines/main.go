@@ -19,6 +19,8 @@ import (
 
 func main() {
 	demoMode := flag.Bool("demo", false, "run with demo fixture data (no network, no polling)")
+	repo := flag.String("repo", "", "show pipelines for a specific GitLab project path or ID")
+	limit := flag.Int("limit", 100, "maximum pipelines to fetch when using -repo")
 	flag.Parse()
 
 	m := tui.New()
@@ -26,7 +28,7 @@ func main() {
 	if *demoMode {
 		runDemo(m)
 	} else {
-		runLive(m)
+		runLive(m, *repo, *limit)
 	}
 }
 
@@ -62,7 +64,7 @@ func runDemo(m tui.Model) {
 	}
 }
 
-func runLive(m tui.Model) {
+func runLive(m tui.Model, repo string, limit int) {
 	ctx := context.Background()
 	client := glab.New()
 	svc := gitlabsvc.New(client)
@@ -91,23 +93,34 @@ func runLive(m tui.Model) {
 		prog.Send(tui.LoadingStatusMsg{Status: status})
 	}
 
+	fetchPipelines := func() ([]pipeline.Pipeline, error) {
+		if repo != "" {
+			return svc.ListProjectPipelines(ctx, repo, limit, sendStatus)
+		}
+		return svc.ListPipelines(ctx, sendStatus)
+	}
+
 	m.Refresh = func() tea.Cmd {
 		return func() tea.Msg {
-			pipelines, err := svc.ListPipelines(ctx, sendStatus)
-			if err != nil && isFatalErr(err) {
-				cache.Clear()
-			} else if len(pipelines) > 0 {
-				cache.Save(pipelines)
+			pipelines, err := fetchPipelines()
+			if repo == "" {
+				if err != nil && isFatalErr(err) {
+					cache.Clear()
+				} else if len(pipelines) > 0 {
+					cache.Save(pipelines)
+				}
 			}
 			return tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err}
 		}
 	}
 	m.HardRefresh = func() tea.Cmd {
 		return func() tea.Msg {
-			activity.Clear()
-			cache.Clear()
-			pipelines, err := svc.ListPipelines(ctx, sendStatus)
-			if len(pipelines) > 0 {
+			if repo == "" {
+				activity.Clear()
+				cache.Clear()
+			}
+			pipelines, err := fetchPipelines()
+			if repo == "" && len(pipelines) > 0 {
 				cache.Save(pipelines)
 			}
 			return tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err}
@@ -117,14 +130,18 @@ func runLive(m tui.Model) {
 	prog = p
 
 	go func() {
-		if cached, err := cache.Load(); err == nil && len(cached) > 0 {
-			p.Send(tui.PipelinesLoadedMsg{Pipelines: toRows(cached)})
+		if repo == "" {
+			if cached, err := cache.Load(); err == nil && len(cached) > 0 {
+				p.Send(tui.PipelinesLoadedMsg{Pipelines: toRows(cached)})
+			}
 		}
-		pipelines, err := svc.ListPipelines(ctx, sendStatus)
-		if err != nil && isFatalErr(err) {
-			cache.Clear()
-		} else if len(pipelines) > 0 {
-			cache.Save(pipelines)
+		pipelines, err := fetchPipelines()
+		if repo == "" {
+			if err != nil && isFatalErr(err) {
+				cache.Clear()
+			} else if len(pipelines) > 0 {
+				cache.Save(pipelines)
+			}
 		}
 		p.Send(tui.PipelinesLoadedMsg{Pipelines: toRows(pipelines), Err: err})
 	}()

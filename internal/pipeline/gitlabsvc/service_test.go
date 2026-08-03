@@ -18,6 +18,8 @@ type mockClient struct {
 	currentUser               func(ctx context.Context) (*gitlab.User, error)
 	fetchUserEventsSince      func(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
 	fetchProject              func(ctx context.Context, projectID int) (*gitlab.Project, error)
+	fetchProjectByPath        func(ctx context.Context, projectPath string) (*gitlab.Project, error)
+	fetchPipelines            func(ctx context.Context, projectID int, limit int) ([]gitlab.Pipeline, error)
 	fetchPipelinesByUser      func(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
 	fetchPipeline             func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	fetchPipelineJobs         func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
@@ -33,6 +35,12 @@ func (m *mockClient) FetchUserEventsSince(ctx context.Context, userID int, after
 }
 func (m *mockClient) FetchProject(ctx context.Context, projectID int) (*gitlab.Project, error) {
 	return m.fetchProject(ctx, projectID)
+}
+func (m *mockClient) FetchProjectByPath(ctx context.Context, projectPath string) (*gitlab.Project, error) {
+	return m.fetchProjectByPath(ctx, projectPath)
+}
+func (m *mockClient) FetchPipelines(ctx context.Context, projectID int, limit int) ([]gitlab.Pipeline, error) {
+	return m.fetchPipelines(ctx, projectID, limit)
 }
 func (m *mockClient) FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error) {
 	return m.fetchPipelinesByUser(ctx, projectID, username, updatedAfter)
@@ -51,6 +59,76 @@ func (m *mockClient) FetchUserMergeRequests(ctx context.Context, updatedAfter ti
 		return m.fetchUserMergeRequests(ctx, updatedAfter)
 	}
 	return nil, nil
+}
+
+func TestListProjectPipelines(t *testing.T) {
+	now := time.Now()
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, projectPath string) (*gitlab.Project, error) {
+			if projectPath != "group/project" {
+				t.Fatalf("projectPath = %q, want group/project", projectPath)
+			}
+			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
+		},
+		fetchPipelines: func(_ context.Context, projectID int, limit int) ([]gitlab.Pipeline, error) {
+			if projectID != 42 {
+				t.Fatalf("projectID = %d, want 42", projectID)
+			}
+			if limit != 25 {
+				t.Fatalf("limit = %d, want 25", limit)
+			}
+			return []gitlab.Pipeline{
+				{ID: 100, Status: "success", Ref: "main", UpdatedAt: now.Add(-1 * time.Minute), CreatedAt: now.Add(-1 * time.Minute)},
+				{ID: 101, Status: "running", Ref: "feature", UpdatedAt: now, CreatedAt: now},
+			}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	pipelines, err := svc.ListProjectPipelines(context.Background(), "group/project", 25, func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pipelines) != 2 {
+		t.Fatalf("expected 2 pipelines, got %d", len(pipelines))
+	}
+	if pipelines[0].ID != "101" {
+		t.Errorf("first pipeline ID = %q, want 101", pipelines[0].ID)
+	}
+	if pipelines[0].Project != "group/project" {
+		t.Errorf("Project = %q, want group/project", pipelines[0].Project)
+	}
+}
+
+func TestListProjectPipelines_ProjectError(t *testing.T) {
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, _ string) (*gitlab.Project, error) {
+			return nil, glab.ErrAuthRequired
+		},
+	}
+	svc := NewWithClient(mc)
+
+	_, err := svc.ListProjectPipelines(context.Background(), "group/project", 100, func(string) {})
+	if !errors.Is(err, pipeline.ErrAuthRequired) {
+		t.Errorf("expected ErrAuthRequired, got %v", err)
+	}
+}
+
+func TestListProjectPipelines_PipelineError(t *testing.T) {
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, _ string) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: 42, PathWithNamespace: "group/project"}, nil
+		},
+		fetchPipelines: func(_ context.Context, _ int, _ int) ([]gitlab.Pipeline, error) {
+			return nil, glab.ErrGlabNotFound
+		},
+	}
+	svc := NewWithClient(mc)
+
+	_, err := svc.ListProjectPipelines(context.Background(), "group/project", 100, func(string) {})
+	if !errors.Is(err, pipeline.ErrClientNotFound) {
+		t.Errorf("expected ErrClientNotFound, got %v", err)
+	}
 }
 
 func TestGetPipeline(t *testing.T) {

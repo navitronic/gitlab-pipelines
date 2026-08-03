@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -41,15 +42,24 @@ func (c *Client) FetchUserEventsSince(ctx context.Context, userID int, after tim
 
 // FetchProject retrieves project details by ID.
 func (c *Client) FetchProject(ctx context.Context, projectID int) (*gitlab.Project, error) {
-	endpoint := "projects/" + strconv.Itoa(projectID)
+	return c.fetchProject(ctx, strconv.Itoa(projectID))
+}
+
+// FetchProjectByPath retrieves project details by full path, for example "group/project".
+func (c *Client) FetchProjectByPath(ctx context.Context, projectPath string) (*gitlab.Project, error) {
+	return c.fetchProject(ctx, url.PathEscape(projectPath))
+}
+
+func (c *Client) fetchProject(ctx context.Context, project string) (*gitlab.Project, error) {
+	endpoint := "projects/" + project
 	out, err := c.Run(ctx, "api", endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("fetching project %d: %w", projectID, err)
+		return nil, fmt.Errorf("fetching project %s: %w", project, err)
 	}
 
-	var project gitlab.Project
-	if err := json.Unmarshal(out, &project); err != nil {
+	var projectResponse gitlab.Project
+	if err := json.Unmarshal(out, &projectResponse); err != nil {
 		return nil, fmt.Errorf("parsing project response: %w", err)
 	}
-	return &project, nil
+	return &projectResponse, nil
 }

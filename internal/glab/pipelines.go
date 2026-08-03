@@ -22,6 +22,19 @@ func (c *Client) FetchPipelinesByUser(ctx context.Context, projectID int, userna
 	return c.fetchPipelinesPaginated(ctx, endpoint)
 }
 
+// FetchPipelines fetches pipelines for a project, ordered by most recently created.
+func (c *Client) FetchPipelines(ctx context.Context, projectID int, limit int) ([]gitlab.Pipeline, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	perPage := limit
+	if perPage > 100 {
+		perPage = 100
+	}
+	endpoint := fmt.Sprintf("projects/%d/pipelines?order_by=id&sort=desc&per_page=%d", projectID, perPage)
+	return c.fetchPipelinesLimited(ctx, endpoint, limit, perPage)
+}
+
 // FetchPipeline fetches a single pipeline by ID.
 func (c *Client) FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error) {
 	endpoint := fmt.Sprintf("projects/%d/pipelines/%d", projectID, pipelineID)
@@ -122,15 +135,9 @@ func (c *Client) fetchPipelinesPaginated(ctx context.Context, baseEndpoint strin
 	const perPage = 100
 	var all []gitlab.Pipeline
 	for page := 1; ; page++ {
-		endpoint := baseEndpoint + "&page=" + strconv.Itoa(page)
-		out, err := c.Run(ctx, "api", endpoint)
+		pipelines, err := c.fetchPipelinesPage(ctx, baseEndpoint, page)
 		if err != nil {
-			return nil, fmt.Errorf("fetching pipelines (page %d): %w", page, err)
-		}
-
-		var pipelines []gitlab.Pipeline
-		if err := json.Unmarshal(out, &pipelines); err != nil {
-			return nil, fmt.Errorf("parsing pipelines response (page %d): %w", page, err)
+			return nil, err
 		}
 
 		all = append(all, pipelines...)
@@ -139,4 +146,37 @@ func (c *Client) fetchPipelinesPaginated(ctx context.Context, baseEndpoint strin
 		}
 	}
 	return all, nil
+}
+
+func (c *Client) fetchPipelinesLimited(ctx context.Context, baseEndpoint string, limit int, perPage int) ([]gitlab.Pipeline, error) {
+	var all []gitlab.Pipeline
+	for page := 1; len(all) < limit; page++ {
+		pipelines, err := c.fetchPipelinesPage(ctx, baseEndpoint, page)
+		if err != nil {
+			return nil, err
+		}
+
+		all = append(all, pipelines...)
+		if len(pipelines) < perPage {
+			break
+		}
+	}
+	if len(all) > limit {
+		return all[:limit], nil
+	}
+	return all, nil
+}
+
+func (c *Client) fetchPipelinesPage(ctx context.Context, baseEndpoint string, page int) ([]gitlab.Pipeline, error) {
+	endpoint := baseEndpoint + "&page=" + strconv.Itoa(page)
+	out, err := c.Run(ctx, "api", endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("fetching pipelines (page %d): %w", page, err)
+	}
+
+	var pipelines []gitlab.Pipeline
+	if err := json.Unmarshal(out, &pipelines); err != nil {
+		return nil, fmt.Errorf("parsing pipelines response (page %d): %w", page, err)
+	}
+	return pipelines, nil
 }

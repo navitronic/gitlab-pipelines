@@ -33,24 +33,30 @@ go build -o gitlab-pipelines ./cmd/gitlab-pipelines/
 
 The application discovers your recent push activity, fetches associated pipelines, and displays them in a table.
 
+To show pipelines for one project instead of discovering recent activity:
+
+```
+./gitlab-pipelines -repo group/project -limit 100
+```
+
 ## Keyboard Shortcuts
 
 ### Pipeline List
 
-| Key | Action |
-|-----|--------|
-| `↑` / `↓` | Navigate pipelines |
-| `Enter` | View pipeline details |
-| `r` | Refresh pipelines |
-| `R` | Clear cache and refetch all data |
-| `q` / `Ctrl+C` | Quit |
+| Key            | Action                           |
+| -------------- | -------------------------------- |
+| `↑` / `↓`      | Navigate pipelines               |
+| `Enter`        | View pipeline details            |
+| `r`            | Refresh pipelines                |
+| `R`            | Clear cache and refetch all data |
+| `q` / `Ctrl+C` | Quit                             |
 
 ### Pipeline Details
 
-| Key | Action |
-|-----|--------|
+| Key                 | Action       |
+| ------------------- | ------------ |
 | `Esc` / `Backspace` | Back to list |
-| `q` / `Ctrl+C` | Quit |
+| `q` / `Ctrl+C`      | Quit         |
 
 ## Features
 
