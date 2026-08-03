@@ -24,6 +24,7 @@ type RepoJobsLoadedMsg struct {
 type JobsModel struct {
 	spinner       spinner.Model
 	repo          string
+	stages        []string
 	jobs          []pipeline.Job
 	cursor        int
 	offset        int
@@ -35,8 +36,10 @@ type JobsModel struct {
 	Refresh       func() tea.Cmd
 }
 
-// NewJobsModel creates a new jobs TUI model in loading state for the given repo.
-func NewJobsModel(repo string) JobsModel {
+// NewJobsModel creates a new jobs TUI model in loading state for the given
+// repo. If stages is non-empty, it is shown in the header as an indication
+// that the job list and totals are filtered.
+func NewJobsModel(repo string, stages []string) JobsModel {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
@@ -44,6 +47,7 @@ func NewJobsModel(repo string) JobsModel {
 	return JobsModel{
 		spinner: s,
 		repo:    repo,
+		stages:  stages,
 		loading: true,
 		width:   120,
 		height:  24,
@@ -159,11 +163,18 @@ func (m JobsModel) View() string {
 }
 
 func (m JobsModel) renderTop() string {
-	header := listTitleStyle.Render(fmt.Sprintf("Jobs for %s — Today", m.repo))
+	header := listTitleStyle.Render(jobsHeaderText(m.repo, m.stages))
 	rows, total := summarizeJobs(m.jobs)
 	summary := renderJobSummaryTable(rows, total, m.width)
 	jobsHeader := jobHeaderStyle.Render(fmt.Sprintf("Jobs (%d)", len(m.jobs)))
 	return lipgloss.JoinVertical(lipgloss.Left, header, "", summary, "", jobsHeader)
+}
+
+func jobsHeaderText(repo string, stages []string) string {
+	if len(stages) == 0 {
+		return fmt.Sprintf("Jobs for %s — Today", repo)
+	}
+	return fmt.Sprintf("Jobs for %s — Today (stages: %s)", repo, strings.Join(stages, ", "))
 }
 
 // listHeight returns how many job rows fit below the summary table and

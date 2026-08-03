@@ -166,8 +166,10 @@ func (s *Service) ListProjectPipelines(ctx context.Context, projectPath string, 
 }
 
 // ListProjectJobsToday returns jobs created so far today (local calendar day)
-// for the given project.
-func (s *Service) ListProjectJobsToday(ctx context.Context, projectPath string, limit int, progress func(string)) ([]pipeline.Job, error) {
+// for the given project. If stages is non-empty, only jobs in those stages
+// are returned; the GitLab jobs API has no server-side stage filter, so this
+// is applied after fetching (and after the limit cutoff).
+func (s *Service) ListProjectJobsToday(ctx context.Context, projectPath string, limit int, stages []string, progress func(string)) ([]pipeline.Job, error) {
 	progress("fetching project...")
 	project, err := s.client.FetchProjectByPath(ctx, projectPath)
 	if err != nil {
@@ -180,9 +182,19 @@ func (s *Service) ListProjectJobsToday(ctx context.Context, projectPath string, 
 		return nil, wrapErr(err)
 	}
 
-	out := make([]pipeline.Job, len(jobs))
-	for i, j := range jobs {
-		out[i] = convertJob(j)
+	stageSet := make(map[string]struct{}, len(stages))
+	for _, s := range stages {
+		stageSet[s] = struct{}{}
+	}
+
+	out := make([]pipeline.Job, 0, len(jobs))
+	for _, j := range jobs {
+		if len(stageSet) > 0 {
+			if _, ok := stageSet[j.Stage]; !ok {
+				continue
+			}
+		}
+		out = append(out, convertJob(j))
 	}
 	return out, nil
 }

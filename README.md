@@ -45,6 +45,14 @@ To show today's jobs for one project, with aggregate totals and a paged job list
 ./gitlab-pipelines -jobs group/project -limit 100
 ```
 
+To only show jobs in specific stages:
+
+```
+./gitlab-pipelines -jobs group/project -stage build,test
+```
+
+`-stage` filters after fetching, so it's still bounded by `-limit` — if you're missing older jobs for a stage because busier stages filled up the limit first, raise `-limit` too.
+
 ## Keyboard Shortcuts
 
 ### Pipeline List

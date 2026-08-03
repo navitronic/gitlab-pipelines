@@ -11,7 +11,7 @@ import (
 )
 
 func testJobsModel() JobsModel {
-	m := NewJobsModel("group/project")
+	m := NewJobsModel("group/project", nil)
 	m.width = 120
 	m.height = 24
 	m.loading = false
@@ -63,6 +63,17 @@ func TestSummarizeJobs_Empty(t *testing.T) {
 	}
 	if total.total() != 0 {
 		t.Errorf("expected 0 total, got %d", total.total())
+	}
+}
+
+func TestJobsHeaderText(t *testing.T) {
+	if got := jobsHeaderText("group/project", nil); got != "Jobs for group/project — Today" {
+		t.Errorf("jobsHeaderText(nil) = %q, want no stage suffix", got)
+	}
+	got := jobsHeaderText("group/project", []string{"build", "test"})
+	want := "Jobs for group/project — Today (stages: build, test)"
+	if got != want {
+		t.Errorf("jobsHeaderText(stages) = %q, want %q", got, want)
 	}
 }
 
@@ -251,7 +262,7 @@ func TestJobsModel_WindowSizeMsg(t *testing.T) {
 }
 
 func TestJobsModel_ViewLoadingState(t *testing.T) {
-	m := NewJobsModel("group/project")
+	m := NewJobsModel("group/project", nil)
 	m.width = 120
 	m.height = 24
 
@@ -262,7 +273,7 @@ func TestJobsModel_ViewLoadingState(t *testing.T) {
 }
 
 func TestJobsModel_ViewErrorState(t *testing.T) {
-	m := NewJobsModel("group/project")
+	m := NewJobsModel("group/project", nil)
 	m.width = 120
 	m.height = 24
 	m.loading = false
@@ -293,5 +304,15 @@ func TestJobsModel_ViewWithJobs(t *testing.T) {
 	}
 	if !strings.Contains(view, "TOTAL") {
 		t.Errorf("expected view to contain totals table, got:\n%s", view)
+	}
+}
+
+func TestJobsModel_ViewShowsStageFilter(t *testing.T) {
+	m := testJobsModel()
+	m.stages = []string{"test"}
+
+	view := m.View()
+	if !strings.Contains(view, "stages: test") {
+		t.Errorf("expected view to show active stage filter, got:\n%s", view)
 	}
 }

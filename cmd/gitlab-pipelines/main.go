@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/navitronic/gitlab-pipelines/internal/activity"
@@ -22,6 +23,7 @@ func main() {
 	repo := flag.String("repo", "", "show pipelines for a specific GitLab project path or ID")
 	jobsRepo := flag.String("jobs", "", "show today's jobs for a specific GitLab project path or ID")
 	limit := flag.Int("limit", 100, "maximum pipelines/jobs to fetch when using -repo or -jobs")
+	stage := flag.String("stage", "", "comma-separated list of stages to show when using -jobs (e.g. \"build,test\")")
 	flag.Parse()
 
 	if *repo != "" && *jobsRepo != "" {
@@ -30,7 +32,7 @@ func main() {
 	}
 
 	if *jobsRepo != "" {
-		runJobs(*jobsRepo, *limit)
+		runJobs(*jobsRepo, *limit, parseStages(*stage))
 		return
 	}
 
@@ -163,12 +165,12 @@ func runLive(m tui.Model, repo string, limit int) {
 	}
 }
 
-func runJobs(repo string, limit int) {
+func runJobs(repo string, limit int, stages []string) {
 	ctx := context.Background()
 	client := glab.New()
 	svc := gitlabsvc.New(client)
 
-	m := tui.NewJobsModel(repo)
+	m := tui.NewJobsModel(repo, stages)
 
 	var prog *tea.Program
 	sendStatus := func(status string) {
@@ -177,7 +179,7 @@ func runJobs(repo string, limit int) {
 
 	m.Refresh = func() tea.Cmd {
 		return func() tea.Msg {
-			jobs, err := svc.ListProjectJobsToday(ctx, repo, limit, sendStatus)
+			jobs, err := svc.ListProjectJobsToday(ctx, repo, limit, stages, sendStatus)
 			return tui.RepoJobsLoadedMsg{Jobs: jobs, Err: err}
 		}
 	}
@@ -189,6 +191,23 @@ func runJobs(repo string, limit int) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// parseStages splits a comma-separated list of stage names, trimming
+// whitespace and dropping empty entries. It returns nil if s is empty.
+func parseStages(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	stages := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			stages = append(stages, p)
+		}
+	}
+	return stages
 }
 
 func toRows(pipelines []pipeline.Pipeline) []tui.PipelineRow {

@@ -161,7 +161,7 @@ func TestListProjectJobsToday(t *testing.T) {
 	}
 	svc := NewWithClient(mc)
 
-	jobs, err := svc.ListProjectJobsToday(context.Background(), "group/project", 25, func(string) {})
+	jobs, err := svc.ListProjectJobsToday(context.Background(), "group/project", 25, nil, func(string) {})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -173,6 +173,60 @@ func TestListProjectJobsToday(t *testing.T) {
 	}
 }
 
+func TestListProjectJobsToday_StageFilter(t *testing.T) {
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, projectPath string) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
+		},
+		fetchProjectJobs: func(_ context.Context, _ int, _ time.Time, _ int) ([]gitlab.Job, error) {
+			return []gitlab.Job{
+				{ID: 1, Name: "build", Stage: "build", Status: "success"},
+				{ID: 2, Name: "unit", Stage: "test", Status: "running"},
+				{ID: 3, Name: "e2e", Stage: "test", Status: "failed"},
+				{ID: 4, Name: "deploy", Stage: "deploy", Status: "success"},
+			}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	jobs, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, []string{"test"}, func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("expected 2 jobs in stage \"test\", got %d", len(jobs))
+	}
+	for _, j := range jobs {
+		if j.Stage != "test" {
+			t.Errorf("job %q has stage %q, want \"test\"", j.Name, j.Stage)
+		}
+	}
+}
+
+func TestListProjectJobsToday_StageFilter_MultipleStages(t *testing.T) {
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, projectPath string) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
+		},
+		fetchProjectJobs: func(_ context.Context, _ int, _ time.Time, _ int) ([]gitlab.Job, error) {
+			return []gitlab.Job{
+				{ID: 1, Name: "build", Stage: "build", Status: "success"},
+				{ID: 2, Name: "unit", Stage: "test", Status: "running"},
+				{ID: 3, Name: "deploy", Stage: "deploy", Status: "success"},
+			}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	jobs, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, []string{"build", "deploy"}, func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("expected 2 jobs, got %d", len(jobs))
+	}
+}
+
 func TestListProjectJobsToday_ProjectError(t *testing.T) {
 	mc := &mockClient{
 		fetchProjectByPath: func(_ context.Context, _ string) (*gitlab.Project, error) {
@@ -181,7 +235,7 @@ func TestListProjectJobsToday_ProjectError(t *testing.T) {
 	}
 	svc := NewWithClient(mc)
 
-	_, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, func(string) {})
+	_, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, nil, func(string) {})
 	if !errors.Is(err, pipeline.ErrAuthRequired) {
 		t.Errorf("expected ErrAuthRequired, got %v", err)
 	}
@@ -198,7 +252,7 @@ func TestListProjectJobsToday_JobsError(t *testing.T) {
 	}
 	svc := NewWithClient(mc)
 
-	_, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, func(string) {})
+	_, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, nil, func(string) {})
 	if !errors.Is(err, pipeline.ErrClientNotFound) {
 		t.Errorf("expected ErrClientNotFound, got %v", err)
 	}
