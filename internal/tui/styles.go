@@ -48,4 +48,14 @@ var (
 	jobHeaderStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginLeft(2)
 	stageStyle       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("69"))
 	runningBoldStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("231"))
+
+	jobRowStyle         = lipgloss.NewStyle().PaddingLeft(2).PaddingRight(2)
+	jobRowSelectedStyle = lipgloss.NewStyle().
+				PaddingLeft(2).
+				PaddingRight(2).
+				Background(lipgloss.Color("238")).
+				Foreground(lipgloss.Color("229"))
+	tableStyle       = lipgloss.NewStyle().PaddingLeft(2)
+	tableHeaderStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("241"))
+	tableTotalStyle  = lipgloss.NewStyle().Bold(true)
 )
