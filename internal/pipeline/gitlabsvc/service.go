@@ -24,6 +24,7 @@ type GitLabClient interface {
 	FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
 	FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
+	FetchProjectJobs(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error)
 	FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
 	FetchUserMergeRequests(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
 }
@@ -162,6 +163,33 @@ func (s *Service) ListProjectPipelines(ctx context.Context, projectPath string, 
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
 	return out, nil
+}
+
+// ListProjectJobsToday returns jobs created so far today (local calendar day)
+// for the given project.
+func (s *Service) ListProjectJobsToday(ctx context.Context, projectPath string, limit int, progress func(string)) ([]pipeline.Job, error) {
+	progress("fetching project...")
+	project, err := s.client.FetchProjectByPath(ctx, projectPath)
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+
+	progress("fetching jobs...")
+	jobs, err := s.client.FetchProjectJobs(ctx, project.ID, startOfDay(time.Now()), limit)
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+
+	out := make([]pipeline.Job, len(jobs))
+	for i, j := range jobs {
+		out[i] = convertJob(j)
+	}
+	return out, nil
+}
+
+func startOfDay(t time.Time) time.Time {
+	y, m, d := t.Date()
+	return time.Date(y, m, d, 0, 0, 0, 0, t.Location())
 }
 
 func (s *Service) GetPipeline(ctx context.Context, project string, id string) (pipeline.Pipeline, error) {

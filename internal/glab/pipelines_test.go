@@ -3,9 +3,11 @@ package glab
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -107,6 +109,129 @@ func TestFetchPipelineJobs_ParseError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected parse error")
 	}
+}
+
+func TestFetchProjectJobs(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+	now := time.Now()
+	response := fmt.Sprintf(`[{"id":1,"name":"build","status":"success","created_at":%q}]`, now.Format(time.RFC3339))
+	script := fakeGlabScriptWithArgs(t, dir, argsPath, response)
+
+	c := &Client{BinaryPath: script}
+	cutoff := now.Add(-1 * time.Hour)
+	jobs, err := c.FetchProjectJobs(context.Background(), 42, cutoff, 25)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("reading args: %v", err)
+	}
+	want := "api projects/42/jobs?order_by=id&sort=desc&per_page=25&page=1"
+	if string(args) != want {
+		t.Errorf("args = %q, want %q", string(args), want)
+	}
+}
+
+func TestFetchProjectJobs_StopsAtCutoff(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("paged fake script is unix-only")
+	}
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+	now := time.Now()
+
+	// Page 1 is a full page (matches per_page) with a mix of jobs after and
+	// before the cutoff, so fetching should stop mid-page without a page 2 call.
+	page1 := fmt.Sprintf(
+		`[{"id":3,"name":"c","status":"success","created_at":%q},{"id":2,"name":"b","status":"success","created_at":%q},{"id":1,"name":"a","status":"success","created_at":%q}]`,
+		now.Format(time.RFC3339),
+		now.Add(-2*time.Hour).Format(time.RFC3339),
+		now.Add(-3*time.Hour).Format(time.RFC3339),
+	)
+	script := fakeGlabScriptPagedWithArgs(t, dir, argsPath, map[int]string{1: page1})
+
+	c := &Client{BinaryPath: script}
+	cutoff := now.Add(-1 * time.Hour)
+	jobs, err := c.FetchProjectJobs(context.Background(), 42, cutoff, 3)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job (only 'c' is after cutoff), got %d", len(jobs))
+	}
+	if jobs[0].Name != "c" {
+		t.Errorf("jobs[0].Name = %q, want \"c\"", jobs[0].Name)
+	}
+
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("reading args: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(args), "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected only 1 page fetched, got %d calls: %v", len(lines), lines)
+	}
+}
+
+func TestFetchProjectJobs_LimitCap(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Now()
+	response := fmt.Sprintf(
+		`[{"id":2,"name":"b","status":"success","created_at":%q},{"id":1,"name":"a","status":"success","created_at":%q}]`,
+		now.Format(time.RFC3339), now.Format(time.RFC3339),
+	)
+	script := fakeGlabScript(t, dir, response)
+
+	c := &Client{BinaryPath: script}
+	jobs, err := c.FetchProjectJobs(context.Background(), 42, now.Add(-1*time.Hour), 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job (capped by limit), got %d", len(jobs))
+	}
+}
+
+func TestFetchProjectJobs_RunError(t *testing.T) {
+	c := &Client{BinaryPath: "/nonexistent/glab"}
+	_, err := c.FetchProjectJobs(context.Background(), 42, time.Now(), 25)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestFetchProjectJobs_ParseError(t *testing.T) {
+	dir := t.TempDir()
+	script := fakeGlabScript(t, dir, "not json")
+
+	c := &Client{BinaryPath: script}
+	_, err := c.FetchProjectJobs(context.Background(), 42, time.Now(), 25)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+}
+
+func fakeGlabScriptPagedWithArgs(t *testing.T, dir, argsPath string, pageResponses map[int]string) string {
+	t.Helper()
+
+	script := filepath.Join(dir, "glab")
+	var b strings.Builder
+	b.WriteString("#!/bin/sh\n")
+	b.WriteString("printf '%s\\n' \"$*\" >> '" + argsPath + "'\n")
+	b.WriteString("case \"$2\" in\n")
+	for page, resp := range pageResponses {
+		b.WriteString(fmt.Sprintf("*page=%d) echo '%s' ;;\n", page, resp))
+	}
+	b.WriteString("*) echo '[]' ;;\nesac\n")
+	if err := os.WriteFile(script, []byte(b.String()), 0o755); err != nil {
+		t.Fatalf("writing fake glab script: %v", err)
+	}
+	return script
 }
 
 func TestFetchMergeRequestByBranch(t *testing.T) {

@@ -73,6 +73,64 @@ func (c *Client) FetchPipelineJobs(ctx context.Context, projectID int, pipelineI
 	return allJobs, nil
 }
 
+// FetchProjectJobs fetches jobs for a project, ordered by most recently created,
+// stopping once a job older than cutoff is seen. Fetching is capped at limit as
+// a safety net against unbounded pagination.
+func (c *Client) FetchProjectJobs(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	perPage := limit
+	if perPage > 100 {
+		perPage = 100
+	}
+	endpoint := fmt.Sprintf("projects/%d/jobs?order_by=id&sort=desc&per_page=%d", projectID, perPage)
+
+	var all []gitlab.Job
+	for page := 1; len(all) < limit; page++ {
+		jobs, err := c.fetchJobsPage(ctx, endpoint, page)
+		if err != nil {
+			return nil, err
+		}
+		if len(jobs) == 0 {
+			break
+		}
+
+		reachedCutoff := false
+		for _, j := range jobs {
+			if j.CreatedAt.Before(cutoff) {
+				reachedCutoff = true
+				break
+			}
+			all = append(all, j)
+			if len(all) >= limit {
+				break
+			}
+		}
+		if reachedCutoff || len(jobs) < perPage {
+			break
+		}
+	}
+	if len(all) > limit {
+		all = all[:limit]
+	}
+	return all, nil
+}
+
+func (c *Client) fetchJobsPage(ctx context.Context, baseEndpoint string, page int) ([]gitlab.Job, error) {
+	endpoint := baseEndpoint + "&page=" + strconv.Itoa(page)
+	out, err := c.Run(ctx, "api", endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("fetching jobs (page %d): %w", page, err)
+	}
+
+	var jobs []gitlab.Job
+	if err := json.Unmarshal(out, &jobs); err != nil {
+		return nil, fmt.Errorf("parsing jobs response (page %d): %w", page, err)
+	}
+	return jobs, nil
+}
+
 // FetchUserMergeRequests fetches merge requests authored by the user that are
 // either currently open (any age) or merged after the given time.
 func (c *Client) FetchUserMergeRequests(ctx context.Context, mergedAfter time.Time) ([]gitlab.MergeRequest, error) {
