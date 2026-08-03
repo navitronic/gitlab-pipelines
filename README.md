@@ -33,10 +33,10 @@ go build -o gitlab-pipelines ./cmd/gitlab-pipelines/
 
 The application discovers your recent push activity, fetches associated pipelines, and displays them in a table.
 
-To show all pipelines for one project instead of discovering recent activity:
+To show pipelines for one project instead of discovering recent activity:
 
 ```
-./gitlab-pipelines -repo group/project
+./gitlab-pipelines -repo group/project -limit 100
 ```
 
 ## Keyboard Shortcuts

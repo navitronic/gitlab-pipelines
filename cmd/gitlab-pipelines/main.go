@@ -19,7 +19,8 @@ import (
 
 func main() {
 	demoMode := flag.Bool("demo", false, "run with demo fixture data (no network, no polling)")
-	repo := flag.String("repo", "", "show all pipelines for a specific GitLab project path or ID")
+	repo := flag.String("repo", "", "show pipelines for a specific GitLab project path or ID")
+	limit := flag.Int("limit", 100, "maximum pipelines to fetch when using -repo")
 	flag.Parse()
 
 	m := tui.New()
@@ -27,7 +28,7 @@ func main() {
 	if *demoMode {
 		runDemo(m)
 	} else {
-		runLive(m, *repo)
+		runLive(m, *repo, *limit)
 	}
 }
 
@@ -63,7 +64,7 @@ func runDemo(m tui.Model) {
 	}
 }
 
-func runLive(m tui.Model, repo string) {
+func runLive(m tui.Model, repo string, limit int) {
 	ctx := context.Background()
 	client := glab.New()
 	svc := gitlabsvc.New(client)
@@ -94,7 +95,7 @@ func runLive(m tui.Model, repo string) {
 
 	fetchPipelines := func() ([]pipeline.Pipeline, error) {
 		if repo != "" {
-			return svc.ListProjectPipelines(ctx, repo, sendStatus)
+			return svc.ListProjectPipelines(ctx, repo, limit, sendStatus)
 		}
 		return svc.ListPipelines(ctx, sendStatus)
 	}

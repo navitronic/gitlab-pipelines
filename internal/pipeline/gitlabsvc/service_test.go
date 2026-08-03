@@ -19,7 +19,7 @@ type mockClient struct {
 	fetchUserEventsSince      func(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
 	fetchProject              func(ctx context.Context, projectID int) (*gitlab.Project, error)
 	fetchProjectByPath        func(ctx context.Context, projectPath string) (*gitlab.Project, error)
-	fetchPipelines            func(ctx context.Context, projectID int) ([]gitlab.Pipeline, error)
+	fetchPipelines            func(ctx context.Context, projectID int, limit int) ([]gitlab.Pipeline, error)
 	fetchPipelinesByUser      func(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
 	fetchPipeline             func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	fetchPipelineJobs         func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
@@ -39,8 +39,8 @@ func (m *mockClient) FetchProject(ctx context.Context, projectID int) (*gitlab.P
 func (m *mockClient) FetchProjectByPath(ctx context.Context, projectPath string) (*gitlab.Project, error) {
 	return m.fetchProjectByPath(ctx, projectPath)
 }
-func (m *mockClient) FetchPipelines(ctx context.Context, projectID int) ([]gitlab.Pipeline, error) {
-	return m.fetchPipelines(ctx, projectID)
+func (m *mockClient) FetchPipelines(ctx context.Context, projectID int, limit int) ([]gitlab.Pipeline, error) {
+	return m.fetchPipelines(ctx, projectID, limit)
 }
 func (m *mockClient) FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error) {
 	return m.fetchPipelinesByUser(ctx, projectID, username, updatedAfter)
@@ -70,9 +70,12 @@ func TestListProjectPipelines(t *testing.T) {
 			}
 			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
 		},
-		fetchPipelines: func(_ context.Context, projectID int) ([]gitlab.Pipeline, error) {
+		fetchPipelines: func(_ context.Context, projectID int, limit int) ([]gitlab.Pipeline, error) {
 			if projectID != 42 {
 				t.Fatalf("projectID = %d, want 42", projectID)
+			}
+			if limit != 25 {
+				t.Fatalf("limit = %d, want 25", limit)
 			}
 			return []gitlab.Pipeline{
 				{ID: 100, Status: "success", Ref: "main", UpdatedAt: now.Add(-1 * time.Minute), CreatedAt: now.Add(-1 * time.Minute)},
@@ -82,7 +85,7 @@ func TestListProjectPipelines(t *testing.T) {
 	}
 	svc := NewWithClient(mc)
 
-	pipelines, err := svc.ListProjectPipelines(context.Background(), "group/project", func(string) {})
+	pipelines, err := svc.ListProjectPipelines(context.Background(), "group/project", 25, func(string) {})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -105,7 +108,7 @@ func TestListProjectPipelines_ProjectError(t *testing.T) {
 	}
 	svc := NewWithClient(mc)
 
-	_, err := svc.ListProjectPipelines(context.Background(), "group/project", func(string) {})
+	_, err := svc.ListProjectPipelines(context.Background(), "group/project", 100, func(string) {})
 	if !errors.Is(err, pipeline.ErrAuthRequired) {
 		t.Errorf("expected ErrAuthRequired, got %v", err)
 	}
@@ -116,13 +119,13 @@ func TestListProjectPipelines_PipelineError(t *testing.T) {
 		fetchProjectByPath: func(_ context.Context, _ string) (*gitlab.Project, error) {
 			return &gitlab.Project{ID: 42, PathWithNamespace: "group/project"}, nil
 		},
-		fetchPipelines: func(_ context.Context, _ int) ([]gitlab.Pipeline, error) {
+		fetchPipelines: func(_ context.Context, _ int, _ int) ([]gitlab.Pipeline, error) {
 			return nil, glab.ErrGlabNotFound
 		},
 	}
 	svc := NewWithClient(mc)
 
-	_, err := svc.ListProjectPipelines(context.Background(), "group/project", func(string) {})
+	_, err := svc.ListProjectPipelines(context.Background(), "group/project", 100, func(string) {})
 	if !errors.Is(err, pipeline.ErrClientNotFound) {
 		t.Errorf("expected ErrClientNotFound, got %v", err)
 	}

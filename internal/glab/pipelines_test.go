@@ -203,7 +203,7 @@ func TestFetchPipelines(t *testing.T) {
 	script := fakeGlabScriptWithArgs(t, dir, argsPath, `[{"id":1,"status":"running"}]`)
 
 	c := &Client{BinaryPath: script}
-	pipelines, err := c.FetchPipelines(context.Background(), 42)
+	pipelines, err := c.FetchPipelines(context.Background(), 42, 25)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestFetchPipelines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading args: %v", err)
 	}
-	want := "api projects/42/pipelines?order_by=id&sort=desc&per_page=100&page=1"
+	want := "api projects/42/pipelines?order_by=id&sort=desc&per_page=25&page=1"
 	if string(args) != want {
 		t.Errorf("args = %q, want %q", string(args), want)
 	}

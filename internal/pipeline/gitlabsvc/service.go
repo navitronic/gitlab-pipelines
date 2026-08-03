@@ -20,7 +20,7 @@ type GitLabClient interface {
 	FetchUserEventsSince(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
 	FetchProject(ctx context.Context, projectID int) (*gitlab.Project, error)
 	FetchProjectByPath(ctx context.Context, projectPath string) (*gitlab.Project, error)
-	FetchPipelines(ctx context.Context, projectID int) ([]gitlab.Pipeline, error)
+	FetchPipelines(ctx context.Context, projectID int, limit int) ([]gitlab.Pipeline, error)
 	FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
 	FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
@@ -141,7 +141,7 @@ func (s *Service) ListPipelines(ctx context.Context, progress func(string)) ([]p
 	return all, nil
 }
 
-func (s *Service) ListProjectPipelines(ctx context.Context, projectPath string, progress func(string)) ([]pipeline.Pipeline, error) {
+func (s *Service) ListProjectPipelines(ctx context.Context, projectPath string, limit int, progress func(string)) ([]pipeline.Pipeline, error) {
 	progress("fetching project...")
 	project, err := s.client.FetchProjectByPath(ctx, projectPath)
 	if err != nil {
@@ -149,7 +149,7 @@ func (s *Service) ListProjectPipelines(ctx context.Context, projectPath string, 
 	}
 
 	progress("fetching pipelines...")
-	pipelines, err := s.client.FetchPipelines(ctx, project.ID)
+	pipelines, err := s.client.FetchPipelines(ctx, project.ID, limit)
 	if err != nil {
 		return nil, wrapErr(err)
 	}
