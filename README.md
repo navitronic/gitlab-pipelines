@@ -39,6 +39,12 @@ To show pipelines for one project instead of discovering recent activity:
 ./gitlab-pipelines -repo group/project -limit 100
 ```
 
+To show today's jobs for one project, with aggregate totals and a paged job list:
+
+```
+./gitlab-pipelines -jobs group/project -limit 100
+```
+
 ## Keyboard Shortcuts
 
 ### Pipeline List
@@ -58,6 +64,15 @@ To show pipelines for one project instead of discovering recent activity:
 | `Esc` / `Backspace` | Back to list |
 | `q` / `Ctrl+C`      | Quit         |
 
+### Jobs View (`-jobs`)
+
+| Key            | Action                       |
+| -------------- | ---------------------------- |
+| `↑` / `↓`      | Navigate jobs                |
+| `o`            | Open selected job in browser |
+| `r`            | Refresh jobs                 |
+| `q` / `Ctrl+C` | Quit                         |
+
 ## Features
 
 - **Auto-refresh** — pipelines refresh every 30 seconds
@@ -65,6 +80,7 @@ To show pipelines for one project instead of discovering recent activity:
 - **Job summaries** — pass/fail counts per pipeline
 - **Status indicators** — colored icons for pipeline and job states (✓ passed, ✗ failed, ● running, ○ pending, ⊘ canceled)
 - **Detail view** — pipeline metadata and jobs grouped by stage with duration
+- **Jobs view** (`-jobs`) — today's jobs for a repo, with an aggregate totals table by stage/job and a paged, browsable job list
 
 ## How It Works
 
