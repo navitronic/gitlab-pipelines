@@ -23,6 +23,9 @@ type mockClient struct {
 	fetchPipelinesByUser      func(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
 	fetchPipeline             func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	fetchPipelineJobs         func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
+	fetchProjectJobs          func(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error)
+	fetchProjectJobsSince     func(ctx context.Context, projectID int, sinceID int, limit int) ([]gitlab.Job, error)
+	fetchJob                  func(ctx context.Context, projectID int, jobID int) (gitlab.Job, error)
 	fetchMergeRequestByBranch func(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
 	fetchUserMergeRequests    func(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
 }
@@ -50,6 +53,15 @@ func (m *mockClient) FetchPipeline(ctx context.Context, projectID int, pipelineI
 }
 func (m *mockClient) FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error) {
 	return m.fetchPipelineJobs(ctx, projectID, pipelineID)
+}
+func (m *mockClient) FetchProjectJobs(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error) {
+	return m.fetchProjectJobs(ctx, projectID, cutoff, limit)
+}
+func (m *mockClient) FetchProjectJobsSince(ctx context.Context, projectID int, sinceID int, limit int) ([]gitlab.Job, error) {
+	return m.fetchProjectJobsSince(ctx, projectID, sinceID, limit)
+}
+func (m *mockClient) FetchJob(ctx context.Context, projectID int, jobID int) (gitlab.Job, error) {
+	return m.fetchJob(ctx, projectID, jobID)
 }
 func (m *mockClient) FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error) {
 	return m.fetchMergeRequestByBranch(ctx, projectID, branch)
@@ -128,6 +140,15 @@ func TestListProjectPipelines_PipelineError(t *testing.T) {
 	_, err := svc.ListProjectPipelines(context.Background(), "group/project", 100, func(string) {})
 	if !errors.Is(err, pipeline.ErrClientNotFound) {
 		t.Errorf("expected ErrClientNotFound, got %v", err)
+	}
+}
+
+func TestStartOfDay(t *testing.T) {
+	in := time.Date(2024, 3, 15, 13, 45, 30, 0, time.UTC)
+	got := startOfDay(in)
+	want := time.Date(2024, 3, 15, 0, 0, 0, 0, time.UTC)
+	if !got.Equal(want) {
+		t.Errorf("startOfDay(%v) = %v, want %v", in, got, want)
 	}
 }
 

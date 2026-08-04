@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/navitronic/gitlab-pipelines/internal/activity"
@@ -20,8 +21,20 @@ import (
 func main() {
 	demoMode := flag.Bool("demo", false, "run with demo fixture data (no network, no polling)")
 	repo := flag.String("repo", "", "show pipelines for a specific GitLab project path or ID")
-	limit := flag.Int("limit", 100, "maximum pipelines to fetch when using -repo")
+	jobsRepo := flag.String("jobs", "", "show today's jobs for a specific GitLab project path or ID")
+	limit := flag.Int("limit", 100, "maximum pipelines/jobs to fetch when using -repo or -jobs")
+	stage := flag.String("stage", "", "comma-separated list of stages to show when using -jobs (e.g. \"build,test\")")
 	flag.Parse()
+
+	if *repo != "" && *jobsRepo != "" {
+		fmt.Fprintln(os.Stderr, "Error: -repo and -jobs cannot be used together")
+		os.Exit(1)
+	}
+
+	if *jobsRepo != "" {
+		runJobs(*jobsRepo, *limit, parseStages(*stage))
+		return
+	}
 
 	m := tui.New()
 
@@ -150,6 +163,51 @@ func runLive(m tui.Model, repo string, limit int) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func runJobs(repo string, limit int, stages []string) {
+	ctx := context.Background()
+	client := glab.New()
+	store := gitlabsvc.NewJobStore(client, repo, limit, stages)
+
+	m := tui.NewJobsModel(repo, stages)
+
+	var prog *tea.Program
+	sendStatus := func(status string) {
+		prog.Send(tui.LoadingStatusMsg{Status: status})
+	}
+
+	m.Refresh = func() tea.Cmd {
+		return func() tea.Msg {
+			jobs, err := store.Refresh(ctx, sendStatus)
+			return tui.RepoJobsLoadedMsg{Jobs: jobs, Err: err}
+		}
+	}
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	prog = p
+
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// parseStages splits a comma-separated list of stage names, trimming
+// whitespace and dropping empty entries. It returns nil if s is empty.
+func parseStages(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	stages := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			stages = append(stages, p)
+		}
+	}
+	return stages
 }
 
 func toRows(pipelines []pipeline.Pipeline) []tui.PipelineRow {

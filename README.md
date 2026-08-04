@@ -39,6 +39,22 @@ To show pipelines for one project instead of discovering recent activity:
 ./gitlab-pipelines -repo group/project -limit 100
 ```
 
+To show today's jobs for one project, with aggregate totals and a paged job list:
+
+```
+./gitlab-pipelines -jobs group/project -limit 100
+```
+
+To only show jobs in specific stages:
+
+```
+./gitlab-pipelines -jobs group/project -stage build,test
+```
+
+`-stage` filters after fetching, so it's still bounded by `-limit` — if you're missing older jobs for a stage because busier stages filled up the limit first, raise `-limit` too.
+
+The jobs view auto-refreshes every 30 seconds. After the first fetch, a refresh only checks for jobs created since the last check and re-fetches details for jobs still running or pending — it doesn't re-fetch the whole day's job list every time.
+
 ## Keyboard Shortcuts
 
 ### Pipeline List
@@ -58,13 +74,23 @@ To show pipelines for one project instead of discovering recent activity:
 | `Esc` / `Backspace` | Back to list |
 | `q` / `Ctrl+C`      | Quit         |
 
+### Jobs View (`-jobs`)
+
+| Key            | Action                       |
+| -------------- | ---------------------------- |
+| `↑` / `↓`      | Navigate jobs                |
+| `o`            | Open selected job in browser |
+| `r`            | Refresh jobs                 |
+| `q` / `Ctrl+C` | Quit                         |
+
 ## Features
 
-- **Auto-refresh** — pipelines refresh every 30 seconds
+- **Auto-refresh** — pipelines and jobs refresh every 30 seconds
 - **Responsive layout** — columns adapt to terminal width
 - **Job summaries** — pass/fail counts per pipeline
 - **Status indicators** — colored icons for pipeline and job states (✓ passed, ✗ failed, ● running, ○ pending, ⊘ canceled)
 - **Detail view** — pipeline metadata and jobs grouped by stage with duration
+- **Jobs view** (`-jobs`) — today's jobs for a repo, with an aggregate totals table by stage/job and a paged, browsable job list. Auto-refresh here is incremental: only new jobs and in-progress jobs are re-fetched, not the whole list
 
 ## How It Works
 
