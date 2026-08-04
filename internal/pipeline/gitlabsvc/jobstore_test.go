@@ -161,6 +161,104 @@ func TestJobStore_Refresh_InProgressFetchErrorIsNonFatal(t *testing.T) {
 	}
 }
 
+func TestJobStore_Refresh_ReChecksJobsInUncommonNonTerminalStatuses(t *testing.T) {
+	now := time.Now()
+	var fetchedJobIDs []int
+
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, projectPath string) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
+		},
+		fetchProjectJobs: func(context.Context, int, time.Time, int) ([]gitlab.Job, error) {
+			// GitLab jobs commonly start in statuses other than "pending" or
+			// "running" (e.g. "created", "preparing", "scheduled").
+			return []gitlab.Job{
+				{ID: 1, Name: "build", Stage: "build", Status: "created", CreatedAt: now},
+			}, nil
+		},
+		fetchProjectJobsSince: func(context.Context, int, int, int) ([]gitlab.Job, error) {
+			return nil, nil
+		},
+		fetchJob: func(_ context.Context, _ int, jobID int) (gitlab.Job, error) {
+			fetchedJobIDs = append(fetchedJobIDs, jobID)
+			return gitlab.Job{ID: 1, Name: "build", Stage: "build", Status: "success", CreatedAt: now}, nil
+		},
+	}
+	store := NewJobStore(mc, "group/project", 25, nil)
+
+	if _, err := store.Refresh(context.Background(), func(string) {}); err != nil {
+		t.Fatalf("unexpected error on first refresh: %v", err)
+	}
+
+	jobs, err := store.Refresh(context.Background(), func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error on second refresh: %v", err)
+	}
+
+	if len(fetchedJobIDs) != 1 || fetchedJobIDs[0] != 1 {
+		t.Fatalf("expected the 'created' job to be re-checked, got %v", fetchedJobIDs)
+	}
+	if len(jobs) != 1 || jobs[0].Status != pipeline.StatusPassed {
+		t.Fatalf("expected the job to have transitioned to passed, got %+v", jobs)
+	}
+}
+
+func TestJobStore_Refresh_StopsReCheckingOnceTerminal(t *testing.T) {
+	now := time.Now()
+	var fetchCalls int
+
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, projectPath string) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
+		},
+		fetchProjectJobs: func(context.Context, int, time.Time, int) ([]gitlab.Job, error) {
+			return []gitlab.Job{
+				{ID: 1, Name: "build", Stage: "build", Status: "running", CreatedAt: now},
+			}, nil
+		},
+		fetchProjectJobsSince: func(context.Context, int, int, int) ([]gitlab.Job, error) {
+			return nil, nil
+		},
+		fetchJob: func(_ context.Context, _ int, jobID int) (gitlab.Job, error) {
+			fetchCalls++
+			return gitlab.Job{ID: 1, Name: "build", Stage: "build", Status: "success", CreatedAt: now}, nil
+		},
+	}
+	store := NewJobStore(mc, "group/project", 25, nil)
+
+	if _, err := store.Refresh(context.Background(), func(string) {}); err != nil {
+		t.Fatalf("unexpected error on first refresh: %v", err)
+	}
+	// Second refresh: job transitions to success.
+	if _, err := store.Refresh(context.Background(), func(string) {}); err != nil {
+		t.Fatalf("unexpected error on second refresh: %v", err)
+	}
+	// Third refresh: job is now terminal, should not be re-fetched again.
+	if _, err := store.Refresh(context.Background(), func(string) {}); err != nil {
+		t.Fatalf("unexpected error on third refresh: %v", err)
+	}
+
+	if fetchCalls != 1 {
+		t.Errorf("expected exactly 1 individual re-fetch (before the job became terminal), got %d", fetchCalls)
+	}
+}
+
+func TestIsTerminalJobStatus(t *testing.T) {
+	terminal := []string{"success", "failed", "canceled", "skipped"}
+	for _, s := range terminal {
+		if !isTerminalJobStatus(s) {
+			t.Errorf("isTerminalJobStatus(%q) = false, want true", s)
+		}
+	}
+
+	nonTerminal := []string{"pending", "running", "created", "preparing", "scheduled", "waiting_for_resource", "waiting_for_callback", "manual", "canceling"}
+	for _, s := range nonTerminal {
+		if isTerminalJobStatus(s) {
+			t.Errorf("isTerminalJobStatus(%q) = true, want false", s)
+		}
+	}
+}
+
 func TestJobStore_Refresh_StageFilter(t *testing.T) {
 	now := time.Now()
 	mc := &mockClient{
