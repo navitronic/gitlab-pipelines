@@ -107,11 +107,26 @@ func (js *JobStore) upsert(jobs []gitlab.Job) {
 func (js *JobStore) inProgressIDs() []int {
 	var ids []int
 	for id, j := range js.jobs {
-		if j.Status == "running" || j.Status == "pending" {
+		if !isTerminalJobStatus(j.Status) {
 			ids = append(ids, id)
 		}
 	}
 	return ids
+}
+
+// isTerminalJobStatus reports whether a job's raw GitLab status is a final
+// state that will never change. Anything else (pending, running, and the
+// less common created/preparing/scheduled/waiting_for_resource/
+// waiting_for_callback/manual/canceling states) is treated as still in
+// progress so it keeps getting re-checked on future refreshes, rather than
+// only recognizing the two most common non-terminal statuses.
+func isTerminalJobStatus(status string) bool {
+	switch status {
+	case "success", "failed", "canceled", "skipped":
+		return true
+	default:
+		return false
+	}
 }
 
 // filtered returns the store's jobs that fall on today's calendar day and
