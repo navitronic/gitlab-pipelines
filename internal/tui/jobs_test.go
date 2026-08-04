@@ -272,6 +272,94 @@ func TestJobsModel_RepoJobsLoadedMsg(t *testing.T) {
 	}
 }
 
+func TestJobsModel_RepoJobsLoadedMsg_StartsTickingWhenJobsActive(t *testing.T) {
+	m := testJobsModel()
+	m.loading = true
+
+	jobs := []pipeline.Job{{ID: "9", Name: "deploy", Status: pipeline.StatusRunning}}
+	result, cmd := m.Update(RepoJobsLoadedMsg{Jobs: jobs})
+	m = result.(JobsModel)
+
+	if !m.ticking {
+		t.Error("expected ticking to start when a running job is loaded")
+	}
+	if cmd == nil {
+		t.Error("expected a tick command to be scheduled")
+	}
+}
+
+func TestJobsModel_RepoJobsLoadedMsg_NoTickWhenNoActiveJobs(t *testing.T) {
+	m := testJobsModel()
+	m.loading = true
+
+	jobs := []pipeline.Job{{ID: "9", Name: "deploy", Status: pipeline.StatusPassed}}
+	result, _ := m.Update(RepoJobsLoadedMsg{Jobs: jobs})
+	m = result.(JobsModel)
+
+	if m.ticking {
+		t.Error("expected ticking not to start when no job is active")
+	}
+}
+
+func TestJobsModel_RepoJobsLoadedMsg_DoesNotStackTickChains(t *testing.T) {
+	m := testJobsModel()
+	m.ticking = true // already ticking from a previous load
+
+	jobs := []pipeline.Job{{ID: "9", Name: "deploy", Status: pipeline.StatusRunning}}
+	result, cmd := m.Update(RepoJobsLoadedMsg{Jobs: jobs})
+	m = result.(JobsModel)
+
+	if !m.ticking {
+		t.Error("expected ticking to remain true")
+	}
+	if cmd != nil {
+		t.Error("expected no new tick command when already ticking")
+	}
+}
+
+func TestJobsModel_JobsTickMsg_ReschedulesWhileActive(t *testing.T) {
+	m := testJobsModel()
+	m.ticking = true
+	m.jobs[0].Status = pipeline.StatusRunning
+
+	result, cmd := m.Update(jobsTickMsg{})
+	m = result.(JobsModel)
+
+	if !m.ticking {
+		t.Error("expected ticking to remain true while a job is active")
+	}
+	if cmd == nil {
+		t.Error("expected the tick to reschedule itself")
+	}
+}
+
+func TestJobsModel_JobsTickMsg_StopsWhenNoLongerActive(t *testing.T) {
+	m := testJobsModel()
+	m.ticking = true
+	for i := range m.jobs {
+		m.jobs[i].Status = pipeline.StatusPassed
+	}
+
+	result, _ := m.Update(jobsTickMsg{})
+	m = result.(JobsModel)
+
+	if m.ticking {
+		t.Error("expected ticking to stop once no job is active")
+	}
+}
+
+func TestJobsModel_ViewWithJobs_ShowsLiveDuration(t *testing.T) {
+	m := testJobsModel()
+	m.jobs = []pipeline.Job{
+		{ID: "1", Name: "deploy", Stage: "deploy", Status: pipeline.StatusRunning, StartedAt: time.Now().Add(-90 * time.Second)},
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "1m30s") {
+		t.Errorf("expected view to show a live-computed running duration, got:\n%s", view)
+	}
+}
+
 func TestJobsModel_RepoJobsLoadedMsg_FatalError(t *testing.T) {
 	m := testJobsModel()
 

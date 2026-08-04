@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,6 +17,16 @@ import (
 type RepoJobsLoadedMsg struct {
 	Jobs []pipeline.Job
 	Err  error
+}
+
+// jobsTickMsg drives the live-updating duration counter on running/pending
+// job rows between refreshes.
+type jobsTickMsg struct{}
+
+func scheduleJobsTick() tea.Cmd {
+	return tea.Tick(time.Second, func(time.Time) tea.Msg {
+		return jobsTickMsg{}
+	})
 }
 
 // JobsModel is the top-level Bubble Tea model for the -jobs view: an
@@ -30,6 +41,7 @@ type JobsModel struct {
 	offset        int
 	loading       bool
 	loadingStatus string
+	ticking       bool
 	err           error
 	width         int
 	height        int
@@ -126,6 +138,10 @@ func (m JobsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.offset > m.cursor {
 			m.offset = m.cursor
 		}
+		if m.hasActiveJobs() && !m.ticking {
+			m.ticking = true
+			return m, scheduleJobsTick()
+		}
 		return m, nil
 
 	case refreshTickMsg:
@@ -137,6 +153,13 @@ func (m JobsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, scheduleRefresh())
 		return m, tea.Batch(cmds...)
 
+	case jobsTickMsg:
+		if m.hasActiveJobs() {
+			return m, scheduleJobsTick()
+		}
+		m.ticking = false
+		return m, nil
+
 	case spinner.TickMsg:
 		if m.loading {
 			var cmd tea.Cmd
@@ -146,6 +169,17 @@ func (m JobsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// hasActiveJobs reports whether any known job is still running or pending,
+// meaning its displayed duration should keep counting up between refreshes.
+func (m JobsModel) hasActiveJobs() bool {
+	for _, j := range m.jobs {
+		if j.Status == pipeline.StatusRunning || j.Status == pipeline.StatusPending {
+			return true
+		}
+	}
+	return false
 }
 
 func (m JobsModel) View() string {
