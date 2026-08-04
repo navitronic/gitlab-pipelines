@@ -45,6 +45,8 @@ To show today's jobs for one project, with aggregate totals and a paged job list
 ./gitlab-pipelines -jobs group/project -limit 100
 ```
 
+![Jobs view screenshot](docs/screenshot-jobs.png)
+
 To only show jobs in specific stages:
 
 ```
