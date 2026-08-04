@@ -55,7 +55,7 @@ func NewJobsModel(repo string, stages []string) JobsModel {
 }
 
 func (m JobsModel) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.spinner.Tick}
+	cmds := []tea.Cmd{m.spinner.Tick, scheduleRefresh()}
 	if m.Refresh != nil {
 		cmds = append(cmds, m.Refresh())
 	}
@@ -128,6 +128,15 @@ func (m JobsModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case refreshTickMsg:
+		var cmds []tea.Cmd
+		if !m.loading && m.Refresh != nil {
+			m.loading = true
+			cmds = append(cmds, m.spinner.Tick, m.Refresh())
+		}
+		cmds = append(cmds, scheduleRefresh())
+		return m, tea.Batch(cmds...)
+
 	case spinner.TickMsg:
 		if m.loading {
 			var cmd tea.Cmd
@@ -189,12 +198,30 @@ func (m JobsModel) renderJobList(height int) string {
 	if len(m.jobs) == 0 {
 		return dimStyle.Render("  No jobs found today.")
 	}
-	end := min(m.offset+height, len(m.jobs))
+
+	contentHeight := height
+	var toast string
+	if m.loading {
+		status := "syncing..."
+		if m.loadingStatus != "" {
+			status = m.loadingStatus
+		}
+		toast = toastStyle.Render(m.spinner.View() + " " + status)
+		contentHeight = max(height-lipgloss.Height(toast), 1)
+	}
+
+	end := min(m.offset+contentHeight, len(m.jobs))
 	rows := make([]string, 0, end-m.offset)
 	for i := m.offset; i < end; i++ {
 		rows = append(rows, renderJobRow(m.jobs[i], m.width, i == m.cursor))
 	}
-	return strings.Join(rows, "\n")
+	listContent := strings.Join(rows, "\n")
+
+	if toast != "" {
+		top := lipgloss.NewStyle().Width(m.width).Height(contentHeight).Render(listContent)
+		return lipgloss.JoinVertical(lipgloss.Left, top, toast)
+	}
+	return listContent
 }
 
 func (m JobsModel) renderStatusBar() string {

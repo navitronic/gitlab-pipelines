@@ -196,6 +196,66 @@ func TestJobsModel_RefreshKey(t *testing.T) {
 	}
 }
 
+func TestJobsModel_RefreshTickMsg_TriggersRefresh(t *testing.T) {
+	m := testJobsModel()
+	called := false
+	m.Refresh = func() tea.Cmd {
+		called = true
+		return nil
+	}
+
+	result, cmd := m.Update(refreshTickMsg{})
+	m = result.(JobsModel)
+
+	if !called {
+		t.Error("expected Refresh to be called on refreshTickMsg")
+	}
+	if !m.loading {
+		t.Error("expected loading to be true after refresh tick")
+	}
+	if cmd == nil {
+		t.Error("expected a batched command (including the next scheduled tick)")
+	}
+}
+
+func TestJobsModel_RefreshTickMsg_NoOpWhileLoading(t *testing.T) {
+	m := testJobsModel()
+	m.loading = true
+	called := false
+	m.Refresh = func() tea.Cmd {
+		called = true
+		return nil
+	}
+
+	result, cmd := m.Update(refreshTickMsg{})
+	m = result.(JobsModel)
+
+	if called {
+		t.Error("Refresh should not be called while already loading")
+	}
+	// The next tick should still be scheduled even when this one was a no-op.
+	if cmd == nil {
+		t.Error("expected the next refresh tick to still be scheduled")
+	}
+}
+
+func TestJobsModel_Init_SchedulesRefresh(t *testing.T) {
+	m := NewJobsModel("group/project", nil)
+	refreshCalled := false
+	m.Refresh = func() tea.Cmd {
+		refreshCalled = true
+		return nil
+	}
+
+	cmd := m.Init()
+	if cmd == nil {
+		t.Fatal("expected Init to return a command")
+	}
+	if !refreshCalled {
+		t.Error("expected Init to call Refresh for the initial fetch")
+	}
+}
+
 func TestJobsModel_RepoJobsLoadedMsg(t *testing.T) {
 	m := testJobsModel()
 	m.loading = true
@@ -314,5 +374,28 @@ func TestJobsModel_ViewShowsStageFilter(t *testing.T) {
 	view := m.View()
 	if !strings.Contains(view, "stages: test") {
 		t.Errorf("expected view to show active stage filter, got:\n%s", view)
+	}
+}
+
+func TestJobsModel_ViewShowsSyncingToastDuringBackgroundRefresh(t *testing.T) {
+	m := testJobsModel()
+	m.loading = true // background refresh with existing jobs already shown
+
+	view := m.View()
+	if !strings.Contains(view, "syncing...") {
+		t.Errorf("expected view to show a syncing toast during background refresh, got:\n%s", view)
+	}
+	if !strings.Contains(view, "build") {
+		t.Errorf("expected existing jobs to remain visible during background refresh, got:\n%s", view)
+	}
+}
+
+func TestJobsModel_ViewNoToastWhenNotLoading(t *testing.T) {
+	m := testJobsModel()
+	m.loading = false
+
+	view := m.View()
+	if strings.Contains(view, "syncing...") {
+		t.Errorf("expected no syncing toast when not loading, got:\n%s", view)
 	}
 }

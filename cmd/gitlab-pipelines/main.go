@@ -168,7 +168,7 @@ func runLive(m tui.Model, repo string, limit int) {
 func runJobs(repo string, limit int, stages []string) {
 	ctx := context.Background()
 	client := glab.New()
-	svc := gitlabsvc.New(client)
+	store := gitlabsvc.NewJobStore(client, repo, limit, stages)
 
 	m := tui.NewJobsModel(repo, stages)
 
@@ -179,7 +179,7 @@ func runJobs(repo string, limit int, stages []string) {
 
 	m.Refresh = func() tea.Cmd {
 		return func() tea.Msg {
-			jobs, err := svc.ListProjectJobsToday(ctx, repo, limit, stages, sendStatus)
+			jobs, err := store.Refresh(ctx, sendStatus)
 			return tui.RepoJobsLoadedMsg{Jobs: jobs, Err: err}
 		}
 	}

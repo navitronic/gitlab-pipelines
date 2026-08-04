@@ -53,6 +53,8 @@ To only show jobs in specific stages:
 
 `-stage` filters after fetching, so it's still bounded by `-limit` — if you're missing older jobs for a stage because busier stages filled up the limit first, raise `-limit` too.
 
+The jobs view auto-refreshes every 30 seconds. After the first fetch, a refresh only checks for jobs created since the last check and re-fetches details for jobs still running or pending — it doesn't re-fetch the whole day's job list every time.
+
 ## Keyboard Shortcuts
 
 ### Pipeline List
@@ -83,12 +85,12 @@ To only show jobs in specific stages:
 
 ## Features
 
-- **Auto-refresh** — pipelines refresh every 30 seconds
+- **Auto-refresh** — pipelines and jobs refresh every 30 seconds
 - **Responsive layout** — columns adapt to terminal width
 - **Job summaries** — pass/fail counts per pipeline
 - **Status indicators** — colored icons for pipeline and job states (✓ passed, ✗ failed, ● running, ○ pending, ⊘ canceled)
 - **Detail view** — pipeline metadata and jobs grouped by stage with duration
-- **Jobs view** (`-jobs`) — today's jobs for a repo, with an aggregate totals table by stage/job and a paged, browsable job list
+- **Jobs view** (`-jobs`) — today's jobs for a repo, with an aggregate totals table by stage/job and a paged, browsable job list. Auto-refresh here is incremental: only new jobs and in-progress jobs are re-fetched, not the whole list
 
 ## How It Works
 
