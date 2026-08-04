@@ -25,6 +25,8 @@ type GitLabClient interface {
 	FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
 	FetchProjectJobs(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error)
+	FetchProjectJobsSince(ctx context.Context, projectID int, sinceID int, limit int) ([]gitlab.Job, error)
+	FetchJob(ctx context.Context, projectID int, jobID int) (gitlab.Job, error)
 	FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
 	FetchUserMergeRequests(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
 }
@@ -162,40 +164,6 @@ func (s *Service) ListProjectPipelines(ctx context.Context, projectPath string, 
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
-	return out, nil
-}
-
-// ListProjectJobsToday returns jobs created so far today (local calendar day)
-// for the given project. If stages is non-empty, only jobs in those stages
-// are returned; the GitLab jobs API has no server-side stage filter, so this
-// is applied after fetching (and after the limit cutoff).
-func (s *Service) ListProjectJobsToday(ctx context.Context, projectPath string, limit int, stages []string, progress func(string)) ([]pipeline.Job, error) {
-	progress("fetching project...")
-	project, err := s.client.FetchProjectByPath(ctx, projectPath)
-	if err != nil {
-		return nil, wrapErr(err)
-	}
-
-	progress("fetching jobs...")
-	jobs, err := s.client.FetchProjectJobs(ctx, project.ID, startOfDay(time.Now()), limit)
-	if err != nil {
-		return nil, wrapErr(err)
-	}
-
-	stageSet := make(map[string]struct{}, len(stages))
-	for _, s := range stages {
-		stageSet[s] = struct{}{}
-	}
-
-	out := make([]pipeline.Job, 0, len(jobs))
-	for _, j := range jobs {
-		if len(stageSet) > 0 {
-			if _, ok := stageSet[j.Stage]; !ok {
-				continue
-			}
-		}
-		out = append(out, convertJob(j))
-	}
 	return out, nil
 }
 

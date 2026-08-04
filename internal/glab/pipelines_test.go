@@ -216,6 +216,120 @@ func TestFetchProjectJobs_ParseError(t *testing.T) {
 	}
 }
 
+func TestFetchProjectJobsSince(t *testing.T) {
+	dir := t.TempDir()
+	response := `[{"id":5,"name":"new-job","status":"success"}]`
+	script := fakeGlabScript(t, dir, response)
+
+	c := &Client{BinaryPath: script}
+	jobs, err := c.FetchProjectJobsSince(context.Background(), 42, 3, 25)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if jobs[0].ID != 5 {
+		t.Errorf("jobs[0].ID = %d, want 5", jobs[0].ID)
+	}
+}
+
+func TestFetchProjectJobsSince_StopsAtBoundary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("paged fake script is unix-only")
+	}
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+
+	// A full page (matches per_page) with a mix of IDs above and below the
+	// boundary, so fetching should stop mid-page without a page 2 call.
+	page1 := `[{"id":5,"name":"c","status":"success"},{"id":4,"name":"b","status":"success"},{"id":3,"name":"a","status":"success"}]`
+	script := fakeGlabScriptPagedWithArgs(t, dir, argsPath, map[int]string{1: page1})
+
+	c := &Client{BinaryPath: script}
+	jobs, err := c.FetchProjectJobsSince(context.Background(), 42, 3, 3)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("expected 2 jobs (IDs 5 and 4 are after the boundary), got %d", len(jobs))
+	}
+
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("reading args: %v", err)
+	}
+	lines := strings.Split(strings.TrimRight(string(args), "\n"), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected only 1 page fetched, got %d calls: %v", len(lines), lines)
+	}
+}
+
+func TestFetchProjectJobsSince_RunError(t *testing.T) {
+	c := &Client{BinaryPath: "/nonexistent/glab"}
+	_, err := c.FetchProjectJobsSince(context.Background(), 42, 0, 25)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestFetchProjectJobsSince_ParseError(t *testing.T) {
+	dir := t.TempDir()
+	script := fakeGlabScript(t, dir, "not json")
+
+	c := &Client{BinaryPath: script}
+	_, err := c.FetchProjectJobsSince(context.Background(), 42, 0, 25)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+}
+
+func TestFetchJob(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+	response := `{"id":7,"name":"deploy","status":"running","web_url":"https://gitlab.com/j/7"}`
+	script := fakeGlabScriptWithArgs(t, dir, argsPath, response)
+
+	c := &Client{BinaryPath: script}
+	job, err := c.FetchJob(context.Background(), 42, 7)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if job.ID != 7 {
+		t.Errorf("ID = %d, want 7", job.ID)
+	}
+	if job.Status != "running" {
+		t.Errorf("Status = %q, want \"running\"", job.Status)
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("reading args: %v", err)
+	}
+	want := "api projects/42/jobs/7"
+	if string(args) != want {
+		t.Errorf("args = %q, want %q", string(args), want)
+	}
+}
+
+func TestFetchJob_RunError(t *testing.T) {
+	c := &Client{BinaryPath: "/nonexistent/glab"}
+	_, err := c.FetchJob(context.Background(), 42, 7)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestFetchJob_ParseError(t *testing.T) {
+	dir := t.TempDir()
+	script := fakeGlabScript(t, dir, "not json")
+
+	c := &Client{BinaryPath: script}
+	_, err := c.FetchJob(context.Background(), 42, 7)
+	if err == nil {
+		t.Fatal("expected parse error")
+	}
+}
+
 func fakeGlabScriptPagedWithArgs(t *testing.T, dir, argsPath string, pageResponses map[int]string) string {
 	t.Helper()
 

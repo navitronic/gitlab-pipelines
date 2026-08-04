@@ -77,6 +77,39 @@ func (c *Client) FetchPipelineJobs(ctx context.Context, projectID int, pipelineI
 // stopping once a job older than cutoff is seen. Fetching is capped at limit as
 // a safety net against unbounded pagination.
 func (c *Client) FetchProjectJobs(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error) {
+	return c.fetchJobsUntil(ctx, projectID, limit, func(j gitlab.Job) bool {
+		return j.CreatedAt.Before(cutoff)
+	})
+}
+
+// FetchProjectJobsSince fetches jobs for a project created after sinceID,
+// ordered by most recently created, stopping once a job with ID <= sinceID
+// is seen. Fetching is capped at limit as a safety net against unbounded
+// pagination. Pass sinceID 0 to fetch the most recent limit jobs.
+func (c *Client) FetchProjectJobsSince(ctx context.Context, projectID int, sinceID int, limit int) ([]gitlab.Job, error) {
+	return c.fetchJobsUntil(ctx, projectID, limit, func(j gitlab.Job) bool {
+		return j.ID <= sinceID
+	})
+}
+
+// FetchJob fetches a single job by ID.
+func (c *Client) FetchJob(ctx context.Context, projectID int, jobID int) (gitlab.Job, error) {
+	endpoint := fmt.Sprintf("projects/%d/jobs/%d", projectID, jobID)
+	out, err := c.Run(ctx, "api", endpoint)
+	if err != nil {
+		return gitlab.Job{}, fmt.Errorf("fetching job: %w", err)
+	}
+	var j gitlab.Job
+	if err := json.Unmarshal(out, &j); err != nil {
+		return gitlab.Job{}, fmt.Errorf("parsing job response: %w", err)
+	}
+	return j, nil
+}
+
+// fetchJobsUntil paginates a project's jobs newest-first, stopping once stop
+// returns true for a job (that job and any after it are excluded), or a page
+// comes back short. Fetching is capped at limit.
+func (c *Client) fetchJobsUntil(ctx context.Context, projectID int, limit int, stop func(gitlab.Job) bool) ([]gitlab.Job, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -96,10 +129,10 @@ func (c *Client) FetchProjectJobs(ctx context.Context, projectID int, cutoff tim
 			break
 		}
 
-		reachedCutoff := false
+		reachedBoundary := false
 		for _, j := range jobs {
-			if j.CreatedAt.Before(cutoff) {
-				reachedCutoff = true
+			if stop(j) {
+				reachedBoundary = true
 				break
 			}
 			all = append(all, j)
@@ -107,7 +140,7 @@ func (c *Client) FetchProjectJobs(ctx context.Context, projectID int, cutoff tim
 				break
 			}
 		}
-		if reachedCutoff || len(jobs) < perPage {
+		if reachedBoundary || len(jobs) < perPage {
 			break
 		}
 	}

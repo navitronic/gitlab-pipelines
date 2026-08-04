@@ -24,6 +24,8 @@ type mockClient struct {
 	fetchPipeline             func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	fetchPipelineJobs         func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
 	fetchProjectJobs          func(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error)
+	fetchProjectJobsSince     func(ctx context.Context, projectID int, sinceID int, limit int) ([]gitlab.Job, error)
+	fetchJob                  func(ctx context.Context, projectID int, jobID int) (gitlab.Job, error)
 	fetchMergeRequestByBranch func(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
 	fetchUserMergeRequests    func(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
 }
@@ -54,6 +56,12 @@ func (m *mockClient) FetchPipelineJobs(ctx context.Context, projectID int, pipel
 }
 func (m *mockClient) FetchProjectJobs(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error) {
 	return m.fetchProjectJobs(ctx, projectID, cutoff, limit)
+}
+func (m *mockClient) FetchProjectJobsSince(ctx context.Context, projectID int, sinceID int, limit int) ([]gitlab.Job, error) {
+	return m.fetchProjectJobsSince(ctx, projectID, sinceID, limit)
+}
+func (m *mockClient) FetchJob(ctx context.Context, projectID int, jobID int) (gitlab.Job, error) {
+	return m.fetchJob(ctx, projectID, jobID)
 }
 func (m *mockClient) FetchMergeRequestByBranch(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error) {
 	return m.fetchMergeRequestByBranch(ctx, projectID, branch)
@@ -130,129 +138,6 @@ func TestListProjectPipelines_PipelineError(t *testing.T) {
 	svc := NewWithClient(mc)
 
 	_, err := svc.ListProjectPipelines(context.Background(), "group/project", 100, func(string) {})
-	if !errors.Is(err, pipeline.ErrClientNotFound) {
-		t.Errorf("expected ErrClientNotFound, got %v", err)
-	}
-}
-
-func TestListProjectJobsToday(t *testing.T) {
-	mc := &mockClient{
-		fetchProjectByPath: func(_ context.Context, projectPath string) (*gitlab.Project, error) {
-			if projectPath != "group/project" {
-				t.Fatalf("projectPath = %q, want group/project", projectPath)
-			}
-			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
-		},
-		fetchProjectJobs: func(_ context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error) {
-			if projectID != 42 {
-				t.Fatalf("projectID = %d, want 42", projectID)
-			}
-			if limit != 25 {
-				t.Fatalf("limit = %d, want 25", limit)
-			}
-			if !cutoff.Equal(startOfDay(time.Now())) {
-				t.Errorf("cutoff = %v, want start of today", cutoff)
-			}
-			return []gitlab.Job{
-				{ID: 1, Name: "build", Stage: "build", Status: "success"},
-				{ID: 2, Name: "test", Stage: "test", Status: "running"},
-			}, nil
-		},
-	}
-	svc := NewWithClient(mc)
-
-	jobs, err := svc.ListProjectJobsToday(context.Background(), "group/project", 25, nil, func(string) {})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(jobs) != 2 {
-		t.Fatalf("expected 2 jobs, got %d", len(jobs))
-	}
-	if jobs[0].Name != "build" {
-		t.Errorf("jobs[0].Name = %q, want \"build\"", jobs[0].Name)
-	}
-}
-
-func TestListProjectJobsToday_StageFilter(t *testing.T) {
-	mc := &mockClient{
-		fetchProjectByPath: func(_ context.Context, projectPath string) (*gitlab.Project, error) {
-			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
-		},
-		fetchProjectJobs: func(_ context.Context, _ int, _ time.Time, _ int) ([]gitlab.Job, error) {
-			return []gitlab.Job{
-				{ID: 1, Name: "build", Stage: "build", Status: "success"},
-				{ID: 2, Name: "unit", Stage: "test", Status: "running"},
-				{ID: 3, Name: "e2e", Stage: "test", Status: "failed"},
-				{ID: 4, Name: "deploy", Stage: "deploy", Status: "success"},
-			}, nil
-		},
-	}
-	svc := NewWithClient(mc)
-
-	jobs, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, []string{"test"}, func(string) {})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(jobs) != 2 {
-		t.Fatalf("expected 2 jobs in stage \"test\", got %d", len(jobs))
-	}
-	for _, j := range jobs {
-		if j.Stage != "test" {
-			t.Errorf("job %q has stage %q, want \"test\"", j.Name, j.Stage)
-		}
-	}
-}
-
-func TestListProjectJobsToday_StageFilter_MultipleStages(t *testing.T) {
-	mc := &mockClient{
-		fetchProjectByPath: func(_ context.Context, projectPath string) (*gitlab.Project, error) {
-			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
-		},
-		fetchProjectJobs: func(_ context.Context, _ int, _ time.Time, _ int) ([]gitlab.Job, error) {
-			return []gitlab.Job{
-				{ID: 1, Name: "build", Stage: "build", Status: "success"},
-				{ID: 2, Name: "unit", Stage: "test", Status: "running"},
-				{ID: 3, Name: "deploy", Stage: "deploy", Status: "success"},
-			}, nil
-		},
-	}
-	svc := NewWithClient(mc)
-
-	jobs, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, []string{"build", "deploy"}, func(string) {})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(jobs) != 2 {
-		t.Fatalf("expected 2 jobs, got %d", len(jobs))
-	}
-}
-
-func TestListProjectJobsToday_ProjectError(t *testing.T) {
-	mc := &mockClient{
-		fetchProjectByPath: func(_ context.Context, _ string) (*gitlab.Project, error) {
-			return nil, glab.ErrAuthRequired
-		},
-	}
-	svc := NewWithClient(mc)
-
-	_, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, nil, func(string) {})
-	if !errors.Is(err, pipeline.ErrAuthRequired) {
-		t.Errorf("expected ErrAuthRequired, got %v", err)
-	}
-}
-
-func TestListProjectJobsToday_JobsError(t *testing.T) {
-	mc := &mockClient{
-		fetchProjectByPath: func(_ context.Context, _ string) (*gitlab.Project, error) {
-			return &gitlab.Project{ID: 42, PathWithNamespace: "group/project"}, nil
-		},
-		fetchProjectJobs: func(_ context.Context, _ int, _ time.Time, _ int) ([]gitlab.Job, error) {
-			return nil, glab.ErrGlabNotFound
-		},
-	}
-	svc := NewWithClient(mc)
-
-	_, err := svc.ListProjectJobsToday(context.Background(), "group/project", 100, nil, func(string) {})
 	if !errors.Is(err, pipeline.ErrClientNotFound) {
 		t.Errorf("expected ErrClientNotFound, got %v", err)
 	}
