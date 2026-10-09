@@ -274,6 +274,7 @@ func convertJob(j gitlab.Job) pipeline.Job {
 		Status:       convertStatus(j.Status),
 		AllowFailure: j.AllowFailure,
 		WebURL:       j.WebURL,
+		User:         j.User.Username,
 		CreatedAt:    j.CreatedAt,
 		StartedAt:    j.StartedAt,
 		Duration:     time.Duration(j.Duration * float64(time.Second)),

@@ -63,6 +63,7 @@ type Job struct {
 	Status       Status
 	AllowFailure bool
 	WebURL       string
+	User         string
 	CreatedAt    time.Time
 	StartedAt    time.Time
 	Duration     time.Duration

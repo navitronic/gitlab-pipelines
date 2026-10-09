@@ -272,20 +272,22 @@ func renderJobRow(j pipeline.Job, width int, selected bool) string {
 	}
 
 	const statusWidth = 12
+	const userWidth = 16
 	const timeWidth = 12
 	const durationWidth = 16
 	innerWidth := max(width-4, 20) // account for jobRowStyle's left/right padding
-	remaining := max(innerWidth-statusWidth-timeWidth-durationWidth-3, 10)
+	remaining := max(innerWidth-statusWidth-userWidth-timeWidth-durationWidth-4, 10)
 	nameWidth := remaining * 2 / 3
 	stageWidth := remaining - nameWidth
 
 	name := padRight(truncateStr(j.Name, nameWidth), nameWidth)
 	stage := padRight(truncateStr(j.Stage, stageWidth), stageWidth)
+	user := padRight(truncateStr(j.User, userWidth), userWidth)
 	status := padRight(statusIcon(j.Status), statusWidth)
 	timeStr := padLeft(formatTime(j.CreatedAt), timeWidth)
 	duration := padRight(truncateStr(jobDuration(j), durationWidth), durationWidth)
 
-	row := name + " " + stage + " " + status + " " + timeStr + duration
+	row := name + " " + stage + " " + user + " " + status + " " + timeStr + duration
 	return style.Render(row)
 }
 

@@ -455,6 +455,15 @@ func TestJobsModel_ViewWithJobs(t *testing.T) {
 	}
 }
 
+func TestRenderJobRow_ShowsUser(t *testing.T) {
+	j := pipeline.Job{Name: "build", Stage: "build", Status: pipeline.StatusPassed, User: "octocat"}
+
+	row := renderJobRow(j, 120, false)
+	if !strings.Contains(row, "octocat") {
+		t.Errorf("expected row to contain triggering user, got:\n%s", row)
+	}
+}
+
 func TestJobsModel_ViewShowsStageFilter(t *testing.T) {
 	m := testJobsModel()
 	m.stages = []string{"test"}

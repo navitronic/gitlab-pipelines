@@ -34,6 +34,7 @@ type Job struct {
 	Status       string    `json:"status"`
 	AllowFailure bool      `json:"allow_failure"`
 	WebURL       string    `json:"web_url"`
+	User         User      `json:"user"`
 	CreatedAt    time.Time `json:"created_at"`
 	StartedAt    time.Time `json:"started_at"`
 	Duration     float64   `json:"duration"`
