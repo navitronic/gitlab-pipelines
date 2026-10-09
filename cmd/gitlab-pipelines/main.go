@@ -22,17 +22,29 @@ func main() {
 	demoMode := flag.Bool("demo", false, "run with demo fixture data (no network, no polling)")
 	repo := flag.String("repo", "", "show pipelines for a specific GitLab project path or ID")
 	jobsRepo := flag.String("jobs", "", "show today's jobs for a specific GitLab project path or ID")
+	statsRepo := flag.String("stats", "", "show pipeline run counts per day for a specific GitLab project path or ID")
 	limit := flag.Int("limit", 100, "maximum pipelines/jobs to fetch when using -repo or -jobs")
 	stage := flag.String("stage", "", "comma-separated list of stages to show when using -jobs (e.g. \"build,test\")")
 	flag.Parse()
 
-	if *repo != "" && *jobsRepo != "" {
-		fmt.Fprintln(os.Stderr, "Error: -repo and -jobs cannot be used together")
+	modes := 0
+	for _, s := range []string{*repo, *jobsRepo, *statsRepo} {
+		if s != "" {
+			modes++
+		}
+	}
+	if modes > 1 {
+		fmt.Fprintln(os.Stderr, "Error: -repo, -jobs and -stats cannot be used together")
 		os.Exit(1)
 	}
 
 	if *jobsRepo != "" {
 		runJobs(*jobsRepo, *limit, parseStages(*stage))
+		return
+	}
+
+	if *statsRepo != "" {
+		runStats(*statsRepo)
 		return
 	}
 
@@ -181,6 +193,37 @@ func runJobs(repo string, limit int, stages []string) {
 		return func() tea.Msg {
 			jobs, err := store.Refresh(ctx, sendStatus)
 			return tui.RepoJobsLoadedMsg{Jobs: jobs, Err: err}
+		}
+	}
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	prog = p
+
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// statsDays is the window of calendar days shown by the -stats view.
+const statsDays = 7
+
+func runStats(repo string) {
+	ctx := context.Background()
+	client := glab.New()
+	svc := gitlabsvc.New(client)
+
+	m := tui.NewStatsModel(repo, statsDays)
+
+	var prog *tea.Program
+	sendStatus := func(status string) {
+		prog.Send(tui.LoadingStatusMsg{Status: status})
+	}
+
+	m.Refresh = func() tea.Cmd {
+		return func() tea.Msg {
+			stats, err := svc.ListProjectPipelineStats(ctx, repo, statsDays, sendStatus)
+			return tui.RepoStatsLoadedMsg{Stats: stats, Err: err}
 		}
 	}
 

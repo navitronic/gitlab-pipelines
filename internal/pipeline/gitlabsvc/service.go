@@ -22,6 +22,7 @@ type GitLabClient interface {
 	FetchProjectByPath(ctx context.Context, projectPath string) (*gitlab.Project, error)
 	FetchPipelines(ctx context.Context, projectID int, limit int) ([]gitlab.Pipeline, error)
 	FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
+	FetchProjectPipelinesSince(ctx context.Context, projectID int, cutoff time.Time) ([]gitlab.Pipeline, error)
 	FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
 	FetchPipelineJobs(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
 	FetchProjectJobs(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error)
@@ -165,6 +166,35 @@ func (s *Service) ListProjectPipelines(ctx context.Context, projectPath string, 
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
 	return out, nil
+}
+
+// ListProjectPipelineStats fetches a project's pipelines from the last `days`
+// calendar days (including today) and returns per-day run counts, oldest day
+// first.
+func (s *Service) ListProjectPipelineStats(ctx context.Context, projectPath string, days int, progress func(string)) (pipeline.PipelineStats, error) {
+	progress("fetching project...")
+	project, err := s.client.FetchProjectByPath(ctx, projectPath)
+	if err != nil {
+		return pipeline.PipelineStats{}, wrapErr(err)
+	}
+
+	if days <= 0 {
+		days = 7
+	}
+	now := time.Now()
+	cutoff := startOfDay(now).AddDate(0, 0, -(days - 1))
+
+	progress("fetching pipelines...")
+	pipelines, err := s.client.FetchProjectPipelinesSince(ctx, project.ID, cutoff)
+	if err != nil {
+		return pipeline.PipelineStats{}, wrapErr(err)
+	}
+
+	out := make([]pipeline.Pipeline, len(pipelines))
+	for i, p := range pipelines {
+		out[i] = convertPipeline(p, project.ID, project.PathWithNamespace)
+	}
+	return pipeline.SummarizePipelineStats(project.PathWithNamespace, out, days, now), nil
 }
 
 func startOfDay(t time.Time) time.Time {

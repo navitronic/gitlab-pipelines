@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -471,6 +472,50 @@ func TestFetchPipelinesByUser_NoUsername(t *testing.T) {
 	}
 	if len(pipelines) != 1 {
 		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
+	}
+}
+
+func TestFetchProjectPipelinesSince(t *testing.T) {
+	dir := t.TempDir()
+	argsPath := filepath.Join(dir, "args")
+	script := fakeGlabScriptWithArgs(t, dir, argsPath, `[{"id":1,"status":"success"}]`)
+
+	c := &Client{BinaryPath: script}
+	cutoff := time.Date(2024, 3, 9, 0, 0, 0, 0, time.UTC)
+	pipelines, err := c.FetchProjectPipelinesSince(context.Background(), 42, cutoff)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(pipelines) != 1 {
+		t.Fatalf("expected 1 pipeline, got %d", len(pipelines))
+	}
+	args, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("reading args: %v", err)
+	}
+	want := "api projects/42/pipelines?order_by=id&sort=desc&per_page=100&created_after=" +
+		url.QueryEscape(cutoff.Format(time.RFC3339)) + "&page=1"
+	if string(args) != want {
+		t.Errorf("args = %q, want %q", string(args), want)
+	}
+}
+
+func TestFetchProjectPipelinesSince_RunError(t *testing.T) {
+	c := &Client{BinaryPath: "/nonexistent/glab"}
+	_, err := c.FetchProjectPipelinesSince(context.Background(), 42, time.Now())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestFetchProjectPipelinesSince_ParseError(t *testing.T) {
+	dir := t.TempDir()
+	script := fakeGlabScript(t, dir, "not json")
+
+	c := &Client{BinaryPath: script}
+	_, err := c.FetchProjectPipelinesSince(context.Background(), 42, time.Now())
+	if err == nil {
+		t.Fatal("expected parse error")
 	}
 }
 

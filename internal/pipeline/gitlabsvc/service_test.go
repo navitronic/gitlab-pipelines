@@ -15,19 +15,20 @@ import (
 )
 
 type mockClient struct {
-	currentUser               func(ctx context.Context) (*gitlab.User, error)
-	fetchUserEventsSince      func(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
-	fetchProject              func(ctx context.Context, projectID int) (*gitlab.Project, error)
-	fetchProjectByPath        func(ctx context.Context, projectPath string) (*gitlab.Project, error)
-	fetchPipelines            func(ctx context.Context, projectID int, limit int) ([]gitlab.Pipeline, error)
-	fetchPipelinesByUser      func(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
-	fetchPipeline             func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
-	fetchPipelineJobs         func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
-	fetchProjectJobs          func(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error)
-	fetchProjectJobsSince     func(ctx context.Context, projectID int, sinceID int, limit int) ([]gitlab.Job, error)
-	fetchJob                  func(ctx context.Context, projectID int, jobID int) (gitlab.Job, error)
-	fetchMergeRequestByBranch func(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
-	fetchUserMergeRequests    func(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
+	currentUser                func(ctx context.Context) (*gitlab.User, error)
+	fetchUserEventsSince       func(ctx context.Context, userID int, after time.Time) ([]gitlab.Event, error)
+	fetchProject               func(ctx context.Context, projectID int) (*gitlab.Project, error)
+	fetchProjectByPath         func(ctx context.Context, projectPath string) (*gitlab.Project, error)
+	fetchPipelines             func(ctx context.Context, projectID int, limit int) ([]gitlab.Pipeline, error)
+	fetchPipelinesByUser       func(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error)
+	fetchProjectPipelinesSince func(ctx context.Context, projectID int, cutoff time.Time) ([]gitlab.Pipeline, error)
+	fetchPipeline              func(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error)
+	fetchPipelineJobs          func(ctx context.Context, projectID int, pipelineID int) ([]gitlab.Job, error)
+	fetchProjectJobs           func(ctx context.Context, projectID int, cutoff time.Time, limit int) ([]gitlab.Job, error)
+	fetchProjectJobsSince      func(ctx context.Context, projectID int, sinceID int, limit int) ([]gitlab.Job, error)
+	fetchJob                   func(ctx context.Context, projectID int, jobID int) (gitlab.Job, error)
+	fetchMergeRequestByBranch  func(ctx context.Context, projectID int, branch string) (gitlab.MergeRequest, error)
+	fetchUserMergeRequests     func(ctx context.Context, updatedAfter time.Time) ([]gitlab.MergeRequest, error)
 }
 
 func (m *mockClient) CurrentUser(ctx context.Context) (*gitlab.User, error) {
@@ -47,6 +48,9 @@ func (m *mockClient) FetchPipelines(ctx context.Context, projectID int, limit in
 }
 func (m *mockClient) FetchPipelinesByUser(ctx context.Context, projectID int, username string, updatedAfter time.Time) ([]gitlab.Pipeline, error) {
 	return m.fetchPipelinesByUser(ctx, projectID, username, updatedAfter)
+}
+func (m *mockClient) FetchProjectPipelinesSince(ctx context.Context, projectID int, cutoff time.Time) ([]gitlab.Pipeline, error) {
+	return m.fetchProjectPipelinesSince(ctx, projectID, cutoff)
 }
 func (m *mockClient) FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error) {
 	return m.fetchPipeline(ctx, projectID, pipelineID)
@@ -138,6 +142,75 @@ func TestListProjectPipelines_PipelineError(t *testing.T) {
 	svc := NewWithClient(mc)
 
 	_, err := svc.ListProjectPipelines(context.Background(), "group/project", 100, func(string) {})
+	if !errors.Is(err, pipeline.ErrClientNotFound) {
+		t.Errorf("expected ErrClientNotFound, got %v", err)
+	}
+}
+
+func TestListProjectPipelineStats(t *testing.T) {
+	now := time.Now()
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, projectPath string) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: 42, PathWithNamespace: projectPath}, nil
+		},
+		fetchProjectPipelinesSince: func(_ context.Context, projectID int, cutoff time.Time) ([]gitlab.Pipeline, error) {
+			if projectID != 42 {
+				t.Fatalf("projectID = %d, want 42", projectID)
+			}
+			wantCutoff := startOfDay(now).AddDate(0, 0, -6)
+			if !cutoff.Equal(wantCutoff) {
+				t.Errorf("cutoff = %v, want %v", cutoff, wantCutoff)
+			}
+			return []gitlab.Pipeline{
+				{ID: 1, Status: "success", CreatedAt: now},
+				{ID: 2, Status: "failed", CreatedAt: now},
+			}, nil
+		},
+	}
+	svc := NewWithClient(mc)
+
+	stats, err := svc.ListProjectPipelineStats(context.Background(), "group/project", 7, func(string) {})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if stats.Project != "group/project" {
+		t.Errorf("Project = %q, want group/project", stats.Project)
+	}
+	if len(stats.Days) != 7 {
+		t.Fatalf("expected 7 days, got %d", len(stats.Days))
+	}
+	today := stats.Days[6]
+	if today.Total != 2 || today.Passed != 1 || today.Failed != 1 {
+		t.Errorf("today = %+v, want Total=2 Passed=1 Failed=1", today)
+	}
+}
+
+func TestListProjectPipelineStats_ProjectError(t *testing.T) {
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, _ string) (*gitlab.Project, error) {
+			return nil, glab.ErrAuthRequired
+		},
+	}
+	svc := NewWithClient(mc)
+
+	_, err := svc.ListProjectPipelineStats(context.Background(), "group/project", 7, func(string) {})
+	if !errors.Is(err, pipeline.ErrAuthRequired) {
+		t.Errorf("expected ErrAuthRequired, got %v", err)
+	}
+}
+
+func TestListProjectPipelineStats_FetchError(t *testing.T) {
+	mc := &mockClient{
+		fetchProjectByPath: func(_ context.Context, _ string) (*gitlab.Project, error) {
+			return &gitlab.Project{ID: 42, PathWithNamespace: "group/project"}, nil
+		},
+		fetchProjectPipelinesSince: func(_ context.Context, _ int, _ time.Time) ([]gitlab.Pipeline, error) {
+			return nil, glab.ErrGlabNotFound
+		},
+	}
+	svc := NewWithClient(mc)
+
+	_, err := svc.ListProjectPipelineStats(context.Background(), "group/project", 7, func(string) {})
 	if !errors.Is(err, pipeline.ErrClientNotFound) {
 		t.Errorf("expected ErrClientNotFound, got %v", err)
 	}

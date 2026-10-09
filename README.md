@@ -57,6 +57,14 @@ To only show jobs in specific stages:
 
 The jobs view auto-refreshes every 30 seconds. After the first fetch, a refresh only checks for jobs created since the last check and re-fetches details for jobs still running or pending — it doesn't re-fetch the whole day's job list every time.
 
+To show pipeline run counts per day for the last 7 days for one project:
+
+```
+./gitlab-pipelines -stats group/project
+```
+
+Each row shows one day's total pipeline runs, split into passed, failed, and other statuses, with an overall total at the bottom.
+
 ## Keyboard Shortcuts
 
 ### Pipeline List
@@ -85,6 +93,13 @@ The jobs view auto-refreshes every 30 seconds. After the first fetch, a refresh 
 | `r`            | Refresh jobs                 |
 | `q` / `Ctrl+C` | Quit                         |
 
+### Stats View (`-stats`)
+
+| Key            | Action  |
+| -------------- | ------- |
+| `r`            | Refresh |
+| `q` / `Ctrl+C` | Quit    |
+
 ## Features
 
 - **Auto-refresh** — pipelines and jobs refresh every 30 seconds
@@ -93,6 +108,7 @@ The jobs view auto-refreshes every 30 seconds. After the first fetch, a refresh 
 - **Status indicators** — colored icons for pipeline and job states (✓ passed, ✗ failed, ● running, ○ pending, ⊘ canceled)
 - **Detail view** — pipeline metadata and jobs grouped by stage with duration
 - **Jobs view** (`-jobs`) — today's jobs for a repo, with an aggregate totals table by stage/job and a paged, browsable job list. Auto-refresh here is incremental: only new jobs and in-progress jobs are re-fetched, not the whole list
+- **Stats view** (`-stats`) — pipeline runs per day for the last 7 days for a repo, split by status
 
 ## How It Works
 

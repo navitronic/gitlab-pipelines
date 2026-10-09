@@ -35,6 +35,15 @@ func (c *Client) FetchPipelines(ctx context.Context, projectID int, limit int) (
 	return c.fetchPipelinesLimited(ctx, endpoint, limit, perPage)
 }
 
+// FetchProjectPipelinesSince fetches all pipelines for a project created on or
+// after cutoff, ordered by most recently created. The server-side created_after
+// filter bounds the result set, so pagination runs to the last short page.
+func (c *Client) FetchProjectPipelinesSince(ctx context.Context, projectID int, cutoff time.Time) ([]gitlab.Pipeline, error) {
+	endpoint := fmt.Sprintf("projects/%d/pipelines?order_by=id&sort=desc&per_page=100&created_after=%s",
+		projectID, url.QueryEscape(cutoff.Format(time.RFC3339)))
+	return c.fetchPipelinesPaginated(ctx, endpoint)
+}
+
 // FetchPipeline fetches a single pipeline by ID.
 func (c *Client) FetchPipeline(ctx context.Context, projectID int, pipelineID int) (gitlab.Pipeline, error) {
 	endpoint := fmt.Sprintf("projects/%d/pipelines/%d", projectID, pipelineID)
